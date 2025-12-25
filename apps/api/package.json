@@ -1,0 +1,29 @@
+{
+  "name": "@gymbros/api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint . --ext ts",
+    "type-check": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "@prisma/client": "^5.7.0",
+    "@gymbros/types": "workspace:*",
+    "@gymbros/analytics-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "prisma": "^5.7.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
+
