@@ -1,0 +1,12 @@
+{
+  "name": "gymbros",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "mobile": "npm run start --workspace=apps/mobile",
+    "lint": "npm run lint --workspace=apps/mobile"
+  }
+}
