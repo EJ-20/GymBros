@@ -3,30 +3,44 @@ import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import { openWorkoutDeepLink } from '@/src/watch/WatchBridge';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   Alert,
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import type { Exercise, SetLog, WorkoutSession } from '@gymbros/shared';
+import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros/shared';
 
 export default function WorkoutScreen() {
   const c = useColors();
+  const router = useRouter();
   const [session, setSession] = useState<WorkoutSession | null>(null);
   const [setsByExercise, setSetsByExercise] = useState<Record<string, SetLog[]>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
+  const [pickRoutineOpen, setPickRoutineOpen] = useState(false);
+  const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
+  const [saveRoutineName, setSaveRoutineName] = useState('');
+  const [endWorkoutOpen, setEndWorkoutOpen] = useState(false);
+  const [endNotes, setEndNotes] = useState('');
+  const [endRpe, setEndRpe] = useState<number | null>(null);
   const [customName, setCustomName] = useState('');
   const [reps, setReps] = useState('8');
   const [weight, setWeight] = useState('20');
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  /** When set, shows chips to jump through a saved routine (in-memory for this session). */
+  const [routineExerciseIds, setRoutineExerciseIds] = useState<string[] | null>(null);
   const exercises = repo.listExercises();
+  const templates = repo.listTemplates();
+
+  const currentSessionId = () => session?.id ?? repo.getActiveSession()?.id ?? '';
 
   const refresh = useCallback(() => {
     const s = repo.getActiveSession();
@@ -46,41 +60,95 @@ export default function WorkoutScreen() {
 
   useFocusEffect(useCallback(() => refresh(), [refresh]));
 
+  const prefillFromHistory = (exerciseId: string, sessionIdForPrior: string) => {
+    const prior = repo.listSetsForExerciseBeforeSession(exerciseId, sessionIdForPrior);
+    const best = bestSetFromHistory(prior);
+    if (best) {
+      setReps(String(best.reps));
+      setWeight(String(best.weightKg));
+    }
+  };
+
+  const pickExercise = (ex: Exercise) => {
+    setSelectedExerciseId(ex.id);
+    setPickerOpen(false);
+    prefillFromHistory(ex.id, currentSessionId());
+  };
+
+  const jumpToRoutineExercise = (exerciseId: string) => {
+    const ex = repo.getExerciseById(exerciseId);
+    if (!ex || !session) return;
+    setSelectedExerciseId(exerciseId);
+    prefillFromHistory(exerciseId, session.id);
+  };
+
   const elapsedMin = session
     ? Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000)
     : 0;
 
   const start = () => {
+    setRoutineExerciseIds(null);
     const s = repo.startSession('phone');
     setSession(s);
     openWorkoutDeepLink('active');
     refresh();
   };
 
-  const end = () => {
-    if (!session) return;
-    Alert.alert('End workout?', 'You can add notes after.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'End',
-        onPress: () => {
-          repo.endSession(session.id);
-          setSession(null);
-          setSetsByExercise({});
-        },
-      },
-    ]);
+  const startFromTemplate = (t: WorkoutTemplate) => {
+    setPickRoutineOpen(false);
+    if (repo.getActiveSession()) {
+      Alert.alert('Workout in progress', 'End your current session first.');
+      return;
+    }
+    const s = repo.startSession('phone');
+    setSession(s);
+    setRoutineExerciseIds([...t.exerciseIds]);
+    const firstId = t.exerciseIds[0];
+    if (firstId) {
+      setSelectedExerciseId(firstId);
+      prefillFromHistory(firstId, s.id);
+    } else {
+      setSelectedExerciseId(null);
+    }
+    openWorkoutDeepLink('active');
+    refresh();
   };
 
-  const pickExercise = (ex: Exercise) => {
-    setSelectedExerciseId(ex.id);
-    setPickerOpen(false);
-    const prior = repo.listSetsForExerciseBeforeSession(ex.id, session?.id ?? '');
-    const best = bestSetFromHistory(prior);
-    if (best) {
-      setReps(String(best.reps));
-      setWeight(String(best.weightKg));
+  const end = () => {
+    if (!session) return;
+    setEndNotes('');
+    setEndRpe(null);
+    setEndWorkoutOpen(true);
+  };
+
+  const confirmEndWorkout = () => {
+    if (!session) return;
+    repo.endSession(session.id, endNotes.trim() || null, endRpe);
+    setEndWorkoutOpen(false);
+    setSession(null);
+    setSetsByExercise({});
+    setRoutineExerciseIds(null);
+    setSelectedExerciseId(null);
+  };
+
+  const openSaveRoutine = () => {
+    if (!session) return;
+    const ids = repo.orderedExerciseIdsFromSession(session.id);
+    if (ids.length === 0) {
+      Alert.alert('Nothing to save', 'Log at least one set first.');
+      return;
     }
+    setSaveRoutineName('');
+    setSaveRoutineOpen(true);
+  };
+
+  const confirmSaveRoutine = () => {
+    const n = saveRoutineName.trim();
+    if (!n || !session) return;
+    repo.createTemplate(n, repo.orderedExerciseIdsFromSession(session.id));
+    setSaveRoutineName('');
+    setSaveRoutineOpen(false);
+    Alert.alert('Saved', 'Open Routines in the header or Workout tab to edit it.');
   };
 
   const addCustom = () => {
@@ -125,11 +193,52 @@ export default function WorkoutScreen() {
       <View style={[styles.centered, { backgroundColor: c.background }]}>
         <Text style={[styles.headline, { color: c.text }]}>No active workout</Text>
         <Text style={[styles.muted, { color: c.textMuted }]}>
-          Start a session to log sets, weight, and duration on the device.
+          Start empty, follow a saved routine, or manage routines in the list.
         </Text>
         <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]} onPress={start}>
           <Text style={styles.primaryBtnText}>Start workout</Text>
         </Pressable>
+        <Pressable
+          style={[styles.secondaryOutline, { borderColor: c.tint }]}
+          onPress={() => setPickRoutineOpen(true)}
+        >
+          <Text style={{ color: c.tint, fontWeight: '600' }}>Start from routine</Text>
+        </Pressable>
+        <Pressable onPress={() => router.push('/routines')}>
+          <Text style={{ color: c.textMuted, marginTop: 8 }}>Manage routines →</Text>
+        </Pressable>
+
+        <Modal visible={pickRoutineOpen} animationType="slide" transparent>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalCard, { backgroundColor: c.card }]}>
+              <Text style={[styles.modalTitle, { color: c.text }]}>Pick a routine</Text>
+              <FlatList
+                data={templates}
+                keyExtractor={(item) => item.id}
+                style={{ maxHeight: '65%' }}
+                ListEmptyComponent={
+                  <Text style={{ color: c.textMuted, marginBottom: 12 }}>
+                    No routines yet. Create one under Manage routines.
+                  </Text>
+                }
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => startFromTemplate(item)}
+                    style={[styles.pickRow, { borderBottomColor: c.border }]}
+                  >
+                    <Text style={{ color: c.text, fontWeight: '600' }}>{item.name}</Text>
+                    <Text style={{ color: c.textMuted, fontSize: 13 }}>
+                      {item.exerciseIds.length} exercises
+                    </Text>
+                  </Pressable>
+                )}
+              />
+              <Pressable onPress={() => setPickRoutineOpen(false)} style={{ marginTop: 12 }}>
+                <Text style={{ color: c.tint }}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -137,11 +246,52 @@ export default function WorkoutScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <View style={[styles.banner, { backgroundColor: c.card, borderColor: c.border }]}>
-        <Text style={[styles.timer, { color: c.text }]}>{elapsedMin} min</Text>
+        <View>
+          <Text style={[styles.timer, { color: c.text }]}>{elapsedMin} min</Text>
+          <Pressable onPress={openSaveRoutine} hitSlop={8}>
+            <Text style={{ color: c.tint, fontSize: 13, marginTop: 4 }}>Save as routine</Text>
+          </Pressable>
+        </View>
         <Pressable onPress={end} style={[styles.endBtn, { borderColor: c.danger }]}>
           <Text style={{ color: c.danger, fontWeight: '600' }}>End</Text>
         </Pressable>
       </View>
+
+      {routineExerciseIds && routineExerciseIds.length > 0 ? (
+        <View style={[styles.routineStrip, { borderBottomColor: c.border }]}>
+          <Text style={[styles.routineLabel, { color: c.textMuted }]}>Routine</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+            {routineExerciseIds.map((eid) => {
+              const ex = repo.getExerciseById(eid);
+              const active = selectedExerciseId === eid;
+              return (
+                <Pressable
+                  key={eid}
+                  onPress={() => jumpToRoutineExercise(eid)}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: active ? c.tint : c.card,
+                      borderColor: c.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#0f1419' : c.text,
+                      fontWeight: active ? '700' : '500',
+                      fontSize: 13,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {ex?.name ?? '…'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
 
       <Pressable
         style={[styles.secondaryBtn, { backgroundColor: c.card, borderColor: c.border }]}
@@ -209,7 +359,10 @@ export default function WorkoutScreen() {
               data={exercises}
               keyExtractor={(e) => e.id}
               renderItem={({ item }) => (
-                <Pressable onPress={() => pickExercise(item)} style={styles.pickRow}>
+                <Pressable
+                  onPress={() => pickExercise(item)}
+                  style={[styles.pickRow, { borderBottomColor: c.border }]}
+                >
                   <Text style={{ color: c.text }}>{item.name}</Text>
                   <Text style={{ color: c.textMuted, fontSize: 12 }}>{item.muscleGroup}</Text>
                 </Pressable>
@@ -242,6 +395,109 @@ export default function WorkoutScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={endWorkoutOpen} animationType="fade" transparent>
+        <View style={[styles.modalBackdrop, { justifyContent: 'center' }]}>
+          <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Finish workout</Text>
+            <Text style={{ color: c.textMuted, fontSize: 14, marginBottom: 12 }}>
+              Optional session notes and how hard it felt (RPE 1–10).
+            </Text>
+            <TextInput
+              value={endNotes}
+              onChangeText={setEndNotes}
+              placeholder="Notes (e.g. slept badly, PR on squat)"
+              placeholderTextColor={c.textMuted}
+              multiline
+              style={[
+                styles.input,
+                {
+                  color: c.text,
+                  borderColor: c.border,
+                  marginBottom: 16,
+                  minHeight: 88,
+                  textAlignVertical: 'top',
+                },
+              ]}
+            />
+            <Text style={{ color: c.textMuted, fontSize: 13, marginBottom: 8 }}>Session RPE</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rpeRow}>
+              <Pressable
+                onPress={() => setEndRpe(null)}
+                style={[
+                  styles.rpeChip,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: endRpe === null ? c.tint : c.background,
+                  },
+                ]}
+              >
+                <Text style={{ color: endRpe === null ? '#0f1419' : c.textMuted, fontWeight: '600' }}>
+                  Skip
+                </Text>
+              </Pressable>
+              {([1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const).map((n) => (
+                <Pressable
+                  key={n}
+                  onPress={() => setEndRpe(n)}
+                  style={[
+                    styles.rpeChip,
+                    {
+                      borderColor: c.border,
+                      backgroundColor: endRpe === n ? c.tint : c.background,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: endRpe === n ? '#0f1419' : c.text,
+                      fontWeight: endRpe === n ? '700' : '500',
+                    }}
+                  >
+                    {n}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: c.tint, marginTop: 20 }]}
+              onPress={confirmEndWorkout}
+            >
+              <Text style={styles.primaryBtnText}>Save & end</Text>
+            </Pressable>
+            <Pressable onPress={() => setEndWorkoutOpen(false)} style={{ marginTop: 12 }}>
+              <Text style={{ color: c.tint }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={saveRoutineOpen} animationType="fade" transparent>
+        <View style={[styles.modalBackdrop, { justifyContent: 'center' }]}>
+          <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Save as routine</Text>
+            <Text style={{ color: c.textMuted, fontSize: 14, marginBottom: 12 }}>
+              Uses exercise order from your first logged set per movement.
+            </Text>
+            <TextInput
+              value={saveRoutineName}
+              onChangeText={setSaveRoutineName}
+              placeholder="Routine name"
+              placeholderTextColor={c.textMuted}
+              style={[styles.input, { color: c.text, borderColor: c.border, marginBottom: 16 }]}
+            />
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: c.tint }]}
+              onPress={confirmSaveRoutine}
+            >
+              <Text style={styles.primaryBtnText}>Save</Text>
+            </Pressable>
+            <Pressable onPress={() => setSaveRoutineOpen(false)} style={{ marginTop: 12 }}>
+              <Text style={{ color: c.tint }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -250,6 +506,14 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', padding: 24, gap: 12 },
   headline: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
   muted: { textAlign: 'center', fontSize: 15 },
+  secondaryOutline: {
+    marginTop: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: 'center',
+  },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -260,6 +524,20 @@ const styles = StyleSheet.create({
   },
   timer: { fontSize: 20, fontWeight: '700' },
   endBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
+  routineStrip: {
+    paddingVertical: 10,
+    paddingLeft: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  routineLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase' },
+  chipRow: { gap: 8, paddingRight: 16 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    maxWidth: 160,
+  },
   secondaryBtn: {
     marginHorizontal: 16,
     marginTop: 12,
@@ -299,6 +577,19 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     padding: 20,
   },
+  saveCard: {
+    marginHorizontal: 24,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+  },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  pickRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#333' },
+  pickRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  rpeRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
+  rpeChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
 });

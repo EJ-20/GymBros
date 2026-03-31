@@ -4,9 +4,18 @@ import { parseWatchIntent } from '@/src/watch/WatchBridge';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import type { ComponentType, PropsWithChildren } from 'react';
 import { useEffect, useState } from 'react';
 import { useColorScheme, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+/** RNGH types omit `children` under React 19 until a matching @types/rn release. */
+function GestureRoot({ children }: PropsWithChildren) {
+  const Root = GestureHandlerRootView as ComponentType<
+    PropsWithChildren<{ style?: { flex: number } }>
+  >;
+  return <Root style={{ flex: 1 }}>{children}</Root>;
+}
 
 SplashScreen.preventAutoHideAsync();
 
@@ -16,14 +25,21 @@ export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
 
   useEffect(() => {
-    try {
-      initDatabase();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDbReady(true);
-      SplashScreen.hideAsync();
-    }
+    let cancelled = false;
+    initDatabase()
+      .then(() => {
+        if (!cancelled) setDbReady(true);
+      })
+      .catch((e: unknown) => {
+        console.error(e);
+        if (!cancelled) setDbReady(true);
+      })
+      .finally(() => {
+        SplashScreen.hideAsync();
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -40,11 +56,16 @@ export default function RootLayout() {
   if (!dbReady) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureRoot>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthProvider>
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: true }} />
+            <Stack.Screen
+              name="routine-builder"
+              options={{ headerShown: true, title: 'Routine' }}
+            />
             <Stack.Screen
               name="profile"
               options={{
@@ -56,6 +77,6 @@ export default function RootLayout() {
           </Stack>
         </AuthProvider>
       </ThemeProvider>
-    </GestureHandlerRootView>
+    </GestureRoot>
   );
 }

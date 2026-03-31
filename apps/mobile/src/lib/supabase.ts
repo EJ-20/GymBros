@@ -7,7 +7,11 @@ const extra = Constants.expoConfig?.extra as
   | undefined;
 
 const url = extra?.supabaseUrl ?? process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const anonKey = extra?.supabaseAnonKey ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const anonKey =
+  extra?.supabaseAnonKey ??
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
+  process.env.EXPO_PUBLIC_SUPABASE_KEY ??
+  '';
 
 export const supabaseConfigured = Boolean(url && anonKey);
 

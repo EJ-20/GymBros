@@ -7,6 +7,8 @@
   ],
   "scripts": {
     "mobile": "npm run start --workspace=apps/mobile",
-    "lint": "npm run lint --workspace=apps/mobile"
+    "lint": "npm run lint --workspace=apps/mobile",
+    "create-test-user": "node scripts/create-test-user.mjs",
+    "check-supabase": "node scripts/check-supabase.mjs"
   }
 }

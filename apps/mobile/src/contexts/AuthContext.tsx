@@ -2,12 +2,18 @@ import type { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { getSupabase, supabaseConfigured } from '@/src/lib/supabase';
 
+export type SignUpResult = {
+  error: Error | null;
+  /** Present when Supabase logs you in immediately (email confirmation disabled or dev). */
+  session: Session | null;
+};
+
 type AuthContextValue = {
   user: User | null;
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   backendReady: boolean;
 };
@@ -45,9 +51,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = useCallback(async (email: string, password: string) => {
     const sb = getSupabase();
-    if (!sb) return { error: new Error('Supabase not configured') };
-    const { error } = await sb.auth.signUp({ email, password });
-    return { error: error as Error | null };
+    if (!sb) return { error: new Error('Supabase not configured'), session: null };
+    const { data, error } = await sb.auth.signUp({ email, password });
+    if (error) return { error: error as Error, session: null };
+    return { error: null, session: data.session ?? null };
   }, []);
 
   const signOut = useCallback(async () => {

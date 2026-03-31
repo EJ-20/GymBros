@@ -1,5 +1,7 @@
 node_modules/
 .expo/
+# Installed with: npx skills add supabase/agent-skills --yes
+.agents/
 dist/
 *.log
 .env

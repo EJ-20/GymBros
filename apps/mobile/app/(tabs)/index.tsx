@@ -43,6 +43,11 @@ export default function TodayScreen() {
       <Text style={[styles.sub, { color: c.textMuted }]}>
         Log sessions, sync to the cloud, compare with friends, and ask the coach.
       </Text>
+      <Link href="/routines" asChild>
+        <Pressable style={{ marginBottom: 8 }}>
+          <Text style={{ color: c.tint, fontWeight: '600' }}>Routines →</Text>
+        </Pressable>
+      </Link>
 
       {active ? (
         <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -79,7 +84,13 @@ export default function TodayScreen() {
           </Text>
           <Text style={[styles.stat, { color: c.text }]}>
             Volume: {Math.round(repo.sessionVolumeKg(last.id))} kg·reps
+            {last.perceivedExertion != null ? ` · RPE ${last.perceivedExertion}` : ''}
           </Text>
+          {last.notes ? (
+            <Text style={{ color: c.textMuted, marginTop: 6 }} numberOfLines={2}>
+              {last.notes}
+            </Text>
+          ) : null}
         </View>
       )}
     </ScrollView>

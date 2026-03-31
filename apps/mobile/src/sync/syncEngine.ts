@@ -1,5 +1,26 @@
 import { getSupabase, supabaseConfigured } from '@/src/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import * as repo from '@/src/db/workoutRepo';
+
+const PAGE = 500;
+
+async function fetchAll<T extends Record<string, unknown>>(
+  sb: SupabaseClient,
+  table: 'exercises' | 'workout_sessions' | 'set_logs',
+  columns: string
+): Promise<{ rows: T[]; error: string | null }> {
+  let start = 0;
+  const rows: T[] = [];
+  for (;;) {
+    const { data, error } = await sb.from(table).select(columns).range(start, start + PAGE - 1);
+    if (error) return { rows: [], error: error.message };
+    const chunk = (data ?? []) as unknown as T[];
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;
+    start += PAGE;
+  }
+  return { rows, error: null };
+}
 
 /**
  * Push dirty local rows to Supabase. Uses client_local_id for idempotent upserts.
@@ -64,6 +85,136 @@ export async function syncToCloud(userId: string): Promise<{ error: string | nul
   }
 
   return { error: null };
+}
+
+type RemoteExercise = {
+  id: string;
+  client_local_id: string;
+  name: string;
+  muscle_group: string;
+  equipment: string | null;
+  created_at: string;
+};
+
+type RemoteSession = {
+  id: string;
+  client_local_id: string;
+  started_at: string;
+  ended_at: string | null;
+  notes: string | null;
+  perceived_exertion: number | null;
+  source: string | null;
+};
+
+type RemoteSet = {
+  id: string;
+  client_local_id: string;
+  session_client_id: string;
+  exercise_client_id: string;
+  order_index: number;
+  reps: number | null;
+  weight_kg: number | string | null;
+  duration_sec: number | null;
+  rpe: number | null;
+};
+
+/**
+ * Download remote rows and merge into SQLite.
+ * Order: exercises → sessions → sets (FKs use client ids).
+ * Local rows with dirty=1 are left unchanged until the next successful push.
+ */
+export async function pullFromCloud(): Promise<{
+  error: string | null;
+  pulled?: { exercises: number; sessions: number; sets: number };
+}> {
+  if (!supabaseConfigured) return { error: 'Backend not configured' };
+  const sb = getSupabase();
+  if (!sb) return { error: 'No client' };
+  const { data: auth } = await sb.auth.getUser();
+  if (!auth.user) return { error: 'Not signed in' };
+
+  const ex = await fetchAll<RemoteExercise>(
+    sb,
+    'exercises',
+    'id, client_local_id, name, muscle_group, equipment, created_at'
+  );
+  if (ex.error) return { error: ex.error };
+
+  const ws = await fetchAll<RemoteSession>(
+    sb,
+    'workout_sessions',
+    'id, client_local_id, started_at, ended_at, notes, perceived_exertion, source'
+  );
+  if (ws.error) return { error: ws.error };
+
+  const st = await fetchAll<RemoteSet>(
+    sb,
+    'set_logs',
+    'id, client_local_id, session_client_id, exercise_client_id, order_index, reps, weight_kg, duration_sec, rpe'
+  );
+  if (st.error) return { error: st.error };
+
+  for (const row of ex.rows) {
+    repo.mergeExerciseFromRemote(
+      row.id,
+      row.client_local_id,
+      row.name,
+      row.muscle_group,
+      row.equipment ?? null,
+      row.created_at
+    );
+  }
+
+  for (const row of ws.rows) {
+    repo.mergeSessionFromRemote(
+      row.id,
+      row.client_local_id,
+      row.started_at,
+      row.ended_at ?? null,
+      row.notes ?? null,
+      row.perceived_exertion != null ? Number(row.perceived_exertion) : null,
+      row.source ?? 'phone'
+    );
+  }
+
+  for (const row of st.rows) {
+    const w =
+      row.weight_kg === null || row.weight_kg === undefined
+        ? null
+        : typeof row.weight_kg === 'string'
+          ? parseFloat(row.weight_kg)
+          : row.weight_kg;
+    repo.mergeSetFromRemote(
+      row.id,
+      row.client_local_id,
+      row.session_client_id,
+      row.exercise_client_id,
+      Number(row.order_index),
+      row.reps != null ? Number(row.reps) : null,
+      w != null && !Number.isNaN(w) ? w : null,
+      row.duration_sec != null ? Number(row.duration_sec) : null,
+      row.rpe != null ? Number(row.rpe) : null
+    );
+  }
+
+  return {
+    error: null,
+    pulled: {
+      exercises: ex.rows.length,
+      sessions: ws.rows.length,
+      sets: st.rows.length,
+    },
+  };
+}
+
+/** Push local changes, then pull from Supabase. */
+export async function syncAll(userId: string): Promise<{
+  error: string | null;
+  pulled?: { exercises: number; sessions: number; sets: number };
+}> {
+  const push = await syncToCloud(userId);
+  if (push.error) return push;
+  return pullFromCloud();
 }
 
 export async function pullProfile(): Promise<{

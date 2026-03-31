@@ -40,6 +40,7 @@ export default function HistoryScreen() {
             </Text>
             <Text style={{ color: c.textMuted }}>
               {mins} min · {vol} kg·reps volume
+              {item.perceivedExertion != null ? ` · RPE ${item.perceivedExertion}` : ''}
             </Text>
             {item.notes ? (
               <Text style={{ color: c.textMuted, marginTop: 6 }} numberOfLines={3}>

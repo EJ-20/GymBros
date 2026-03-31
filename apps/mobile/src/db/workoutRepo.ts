@@ -1,4 +1,5 @@
-import type { Exercise, SetLog, WorkoutSession } from '@gymbros/shared';
+import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros/shared';
+import { randomUUID } from '@/src/lib/randomUUID';
 import { getDb } from './database';
 
 function rowToExercise(r: Record<string, unknown>): Exercise {
@@ -51,7 +52,7 @@ export function createExercise(
   equipment?: string
 ): Exercise {
   const d = getDb();
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const now = new Date().toISOString();
   d.runSync(
     `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, dirty)
@@ -89,7 +90,7 @@ export function startSession(source: WorkoutSession['source'] = 'phone'): Workou
   const d = getDb();
   const active = getActiveSession();
   if (active) return active;
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const now = new Date().toISOString();
   d.runSync(
     `INSERT INTO workout_sessions (id, started_at, ended_at, notes, perceived_exertion, source, dirty)
@@ -140,7 +141,7 @@ export function addSet(
   }
 ): SetLog {
   const d = getDb();
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const maxRow = d.getFirstSync<{ m: number | null }>(
     'SELECT MAX(order_index) as m FROM set_logs WHERE session_id = ? AND exercise_id = ?',
     [sessionId, exerciseId]
@@ -193,7 +194,7 @@ export function listSetsForExerciseBeforeSession(
      WHERE sl.exercise_id = ? AND sl.session_id != ? AND ws.ended_at IS NOT NULL`,
     [exerciseId, excludeSessionId]
   );
-  return rows.map((r) => ({
+  return rows.map((r: Record<string, unknown>) => ({
     weightKg: r.weight_kg != null ? Number(r.weight_kg) : null,
     reps: r.reps != null ? Number(r.reps) : null,
   }));
@@ -216,9 +217,9 @@ export function listDirtyRows(): {
 } {
   const d = getDb();
   return {
-    exercises: d.getAllSync('SELECT * FROM exercises WHERE dirty = 1'),
-    sessions: d.getAllSync('SELECT * FROM workout_sessions WHERE dirty = 1'),
-    sets: d.getAllSync('SELECT * FROM set_logs WHERE dirty = 1'),
+    exercises: d.getAllSync<Record<string, unknown>>('SELECT * FROM exercises WHERE dirty = 1'),
+    sessions: d.getAllSync<Record<string, unknown>>('SELECT * FROM workout_sessions WHERE dirty = 1'),
+    sets: d.getAllSync<Record<string, unknown>>('SELECT * FROM set_logs WHERE dirty = 1'),
   };
 }
 
@@ -231,7 +232,186 @@ export function markSynced(
   d.runSync(`UPDATE ${table} SET remote_id = ?, dirty = 0 WHERE id = ?`, [remoteId, localId]);
 }
 
+/**
+ * Apply a row from Supabase. Primary key on device stays `client_local_id`.
+ * Rows with dirty=1 are not overwritten (local changes win until you push).
+ */
+export function mergeExerciseFromRemote(
+  serverId: string,
+  clientLocalId: string,
+  name: string,
+  muscleGroup: string,
+  equipment: string | null,
+  createdAt: string
+): void {
+  const d = getDb();
+  d.runSync(
+    `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, remote_id, dirty)
+     VALUES (?, ?, ?, ?, 1, ?, ?, 0)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       muscle_group = excluded.muscle_group,
+       equipment = excluded.equipment,
+       created_at = excluded.created_at,
+       remote_id = excluded.remote_id,
+       dirty = 0
+     WHERE exercises.dirty = 0`,
+    [clientLocalId, name, muscleGroup, equipment, createdAt, serverId]
+  );
+}
+
+export function mergeSessionFromRemote(
+  serverId: string,
+  clientLocalId: string,
+  startedAt: string,
+  endedAt: string | null,
+  notes: string | null,
+  perceivedExertion: number | null,
+  source: string
+): void {
+  const d = getDb();
+  d.runSync(
+    `INSERT INTO workout_sessions (id, started_at, ended_at, notes, perceived_exertion, source, remote_id, dirty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+     ON CONFLICT(id) DO UPDATE SET
+       started_at = excluded.started_at,
+       ended_at = excluded.ended_at,
+       notes = excluded.notes,
+       perceived_exertion = excluded.perceived_exertion,
+       source = excluded.source,
+       remote_id = excluded.remote_id,
+       dirty = 0
+     WHERE workout_sessions.dirty = 0`,
+    [
+      clientLocalId,
+      startedAt,
+      endedAt,
+      notes,
+      perceivedExertion,
+      source || 'phone',
+      serverId,
+    ]
+  );
+}
+
+export function mergeSetFromRemote(
+  serverId: string,
+  clientLocalId: string,
+  sessionClientId: string,
+  exerciseClientId: string,
+  orderIndex: number,
+  reps: number | null,
+  weightKg: number | null,
+  durationSec: number | null,
+  rpe: number | null
+): void {
+  const d = getDb();
+  d.runSync(
+    `INSERT INTO set_logs (id, session_id, exercise_id, order_index, reps, weight_kg, duration_sec, rpe, remote_id, dirty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+     ON CONFLICT(id) DO UPDATE SET
+       session_id = excluded.session_id,
+       exercise_id = excluded.exercise_id,
+       order_index = excluded.order_index,
+       reps = excluded.reps,
+       weight_kg = excluded.weight_kg,
+       duration_sec = excluded.duration_sec,
+       rpe = excluded.rpe,
+       remote_id = excluded.remote_id,
+       dirty = 0
+     WHERE set_logs.dirty = 0`,
+    [
+      clientLocalId,
+      sessionClientId,
+      exerciseClientId,
+      orderIndex,
+      reps,
+      weightKg,
+      durationSec,
+      rpe,
+      serverId,
+    ]
+  );
+}
+
 /** Recent completed sessions for AI / summary (last N). */
+function rowToTemplate(r: Record<string, unknown>): WorkoutTemplate {
+  let exerciseIds: string[] = [];
+  try {
+    const raw = r.exercise_ids as string;
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      exerciseIds = parsed.filter((x): x is string => typeof x === 'string');
+    }
+  } catch {
+    exerciseIds = [];
+  }
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    exerciseIds,
+    createdAt: r.created_at as string,
+  };
+}
+
+export function listTemplates(): WorkoutTemplate[] {
+  const d = getDb();
+  const rows = d.getAllSync<Record<string, unknown>>(
+    'SELECT * FROM workout_templates ORDER BY created_at DESC'
+  );
+  return rows.map(rowToTemplate);
+}
+
+export function getTemplate(id: string): WorkoutTemplate | null {
+  const d = getDb();
+  const r = d.getFirstSync<Record<string, unknown>>(
+    'SELECT * FROM workout_templates WHERE id = ?',
+    [id]
+  );
+  return r ? rowToTemplate(r) : null;
+}
+
+export function createTemplate(name: string, exerciseIds: string[]): WorkoutTemplate {
+  const d = getDb();
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  d.runSync(
+    `INSERT INTO workout_templates (id, name, exercise_ids, created_at)
+     VALUES (?, ?, ?, ?)`,
+    [id, name.trim(), JSON.stringify(exerciseIds), now]
+  );
+  return { id, name: name.trim(), exerciseIds, createdAt: now };
+}
+
+export function updateTemplate(
+  id: string,
+  name: string,
+  exerciseIds: string[]
+): void {
+  const d = getDb();
+  d.runSync(
+    `UPDATE workout_templates SET name = ?, exercise_ids = ? WHERE id = ?`,
+    [name.trim(), JSON.stringify(exerciseIds), id]
+  );
+}
+
+export function deleteTemplate(id: string): void {
+  const d = getDb();
+  d.runSync('DELETE FROM workout_templates WHERE id = ?', [id]);
+}
+
+/** Exercises in the order the user first logged a set (SQLite rowid). */
+export function orderedExerciseIdsFromSession(sessionId: string): string[] {
+  const d = getDb();
+  const rows = d.getAllSync<Record<string, unknown>>(
+    `SELECT exercise_id FROM set_logs WHERE session_id = ?
+     GROUP BY exercise_id
+     ORDER BY MIN(rowid)`,
+    [sessionId]
+  );
+  return rows.map((r) => r.exercise_id as string);
+}
+
 export function recentSessionsForContext(limit = 8): {
   session: WorkoutSession;
   sets: SetLog[];
@@ -245,7 +425,7 @@ export function recentSessionsForContext(limit = 8): {
   );
   const exercises = listExercises();
   const nameById = Object.fromEntries(exercises.map((e) => [e.id, e.name]));
-  return sessions.map((row) => {
+  return sessions.map((row: Record<string, unknown>) => {
     const session = rowToSession(row);
     const sets = listSetsForSession(session.id);
     return { session, sets, exerciseNames: nameById };

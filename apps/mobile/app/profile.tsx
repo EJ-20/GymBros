@@ -1,6 +1,6 @@
 import { useColors } from '@/src/hooks/useColors';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { pullProfile, syncToCloud, updateProfilePrivacy } from '@/src/sync/syncEngine';
+import { pullProfile, syncAll, updateProfilePrivacy } from '@/src/sync/syncEngine';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import {
@@ -66,10 +66,15 @@ export default function ProfileScreen() {
   const runSync = async () => {
     if (!user) return;
     setBusy(true);
-    const { error } = await syncToCloud(user.id);
+    const { error, pulled } = await syncAll(user.id);
     setBusy(false);
     if (error) Alert.alert('Sync', error);
-    else Alert.alert('Sync', 'Local workouts uploaded.');
+    else if (pulled) {
+      Alert.alert(
+        'Sync complete',
+        `Uploaded local changes.\nPulled from cloud: ${pulled.exercises} exercises, ${pulled.sessions} sessions, ${pulled.sets} sets.`
+      );
+    } else Alert.alert('Sync', 'Done.');
   };
 
   if (loading) {
@@ -142,7 +147,7 @@ export default function ProfileScreen() {
             onPress={runSync}
             disabled={busy}
           >
-            <Text style={{ color: c.text, fontWeight: '600' }}>Sync workouts to cloud</Text>
+            <Text style={{ color: c.text, fontWeight: '600' }}>Sync (push + pull)</Text>
           </Pressable>
 
           <Pressable onPress={() => signOut()} style={{ marginTop: 24, marginBottom: 40 }}>
@@ -152,7 +157,8 @@ export default function ProfileScreen() {
       ) : (
         <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
           <Text style={{ color: c.textMuted, marginBottom: 12 }}>
-            Email and password auth (configure Supabase Auth).
+            Sign up or sign in with email. Use at least 6 characters for the password (Supabase
+            default).
           </Text>
           <TextInput
             autoCapitalize="none"
@@ -167,14 +173,19 @@ export default function ProfileScreen() {
             secureTextEntry
             value={password}
             onChangeText={setPassword}
-            placeholder="Password"
+            placeholder="Password (min 6 characters)"
             placeholderTextColor={c.textMuted}
             style={[styles.input, { color: c.text, borderColor: c.border }]}
           />
           <Pressable
             style={[styles.btn, { backgroundColor: c.tint }]}
             onPress={async () => {
-              const { error } = await signIn(email.trim(), password);
+              const e = email.trim();
+              if (!e) {
+                Alert.alert('Sign in', 'Enter your email.');
+                return;
+              }
+              const { error } = await signIn(e, password);
               if (error) Alert.alert('Sign in', error.message);
             }}
           >
@@ -183,9 +194,29 @@ export default function ProfileScreen() {
           <Pressable
             style={[styles.btn, { backgroundColor: c.border, marginTop: 10 }]}
             onPress={async () => {
-              const { error } = await signUp(email.trim(), password);
-              if (error) Alert.alert('Sign up', error.message);
-              else Alert.alert('Check email', 'Confirm your address if required by Supabase.');
+              const e = email.trim();
+              if (!e) {
+                Alert.alert('Sign up', 'Enter your email.');
+                return;
+              }
+              if (password.length < 6) {
+                Alert.alert('Sign up', 'Password must be at least 6 characters.');
+                return;
+              }
+              const { error, session: newSession } = await signUp(e, password);
+              if (error) {
+                Alert.alert('Sign up', error.message);
+                return;
+              }
+              if (newSession) {
+                Alert.alert('Welcome', 'You are signed in.');
+              } else {
+                Alert.alert(
+                  'Check your email',
+                  'Open the confirmation link from Supabase, then return here and sign in.\n\n' +
+                    'For local testing you can turn off “Confirm email” in the Supabase dashboard (see README).'
+                );
+              }
             }}
           >
             <Text style={[styles.btnText, { color: c.text }]}>Create account</Text>
