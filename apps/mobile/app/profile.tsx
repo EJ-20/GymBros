@@ -1,7 +1,10 @@
 import { useColors } from '@/src/hooks/useColors';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { friendlyBackendError } from '@/src/lib/friendlyError';
 import { pullProfile, syncAll, updateProfilePrivacy } from '@/src/sync/syncEngine';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { Link } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,12 +19,26 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
+function formatPulledSummary(p: {
+  exercises: number;
+  sessions: number;
+  sets: number;
+  routines: number;
+}): string {
+  const lines = [
+    `${p.exercises} exercise${p.exercises === 1 ? '' : 's'}`,
+    `${p.sessions} session${p.sessions === 1 ? '' : 's'}`,
+    `${p.sets} set${p.sets === 1 ? '' : 's'}`,
+    `${p.routines} routine${p.routines === 1 ? '' : 's'}`,
+  ];
+  return `Pulled from cloud:\n${lines.join('\n')}`;
+}
+
 export default function ProfileScreen() {
   const c = useColors();
-  const { user, loading, signIn, signUp, signOut, backendReady } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { user, loading, signOut, backendReady } = useAuth();
+  const [savingPrivacy, setSavingPrivacy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [shareVol, setShareVol] = useState(false);
   const [shareSessions, setShareSessions] = useState(false);
@@ -51,210 +68,409 @@ export default function ProfileScreen() {
   };
 
   const savePrivacy = async () => {
-    setBusy(true);
+    setSavingPrivacy(true);
     const { error } = await updateProfilePrivacy({
       displayName: displayName.trim() || undefined,
       shareWeeklyVolume: shareVol,
       shareSessionCount: shareSessions,
       shareBestLifts: shareBest,
     });
-    setBusy(false);
-    if (error) Alert.alert('Profile', error);
+    setSavingPrivacy(false);
+    if (error) Alert.alert('Profile', friendlyBackendError(error));
     else Alert.alert('Saved', 'Privacy settings updated.');
   };
 
   const runSync = async () => {
     if (!user) return;
-    setBusy(true);
+    setSyncing(true);
     const { error, pulled } = await syncAll(user.id);
-    setBusy(false);
-    if (error) Alert.alert('Sync', error);
+    setSyncing(false);
+    if (error) Alert.alert('Sync', friendlyBackendError(error));
     else if (pulled) {
-      Alert.alert(
-        'Sync complete',
-        `Uploaded local changes.\nPulled from cloud: ${pulled.exercises} exercises, ${pulled.sessions} sessions, ${pulled.sets} sets.`
-      );
-    } else Alert.alert('Sync', 'Done.');
+      Alert.alert('Sync complete', `Local changes uploaded.\n\n${formatPulledSummary(pulled)}`);
+    } else Alert.alert('Sync complete', 'Local changes uploaded. Nothing new from the cloud.');
   };
 
   if (loading) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <ActivityIndicator color={c.tint} />
+      <View style={[styles.loadingRoot, { backgroundColor: c.background }]}>
+        <ActivityIndicator color={c.tint} size="large" />
+        <Text style={[styles.loadingText, { color: c.textMuted }]}>Loading account…</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.content}>
-      <Text style={[styles.title, { color: c.text }]}>Account</Text>
+    <ScrollView
+      style={{ backgroundColor: c.background }}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.header}>
+        <Text style={[styles.kicker, { color: c.textMuted }]}>Account</Text>
+        <Text style={[styles.title, { color: c.text }]}>{user ? 'Profile & sync' : 'Account'}</Text>
+        <Text style={[styles.sub, { color: c.textMuted }]}>
+          {user
+            ? 'Cloud backup, friend compare privacy, and session sync.'
+            : 'Train locally, or sign in to sync and use Compare & Coach.'}
+        </Text>
+      </View>
 
       {!backendReady ? (
-        <Text style={{ color: c.textMuted, marginBottom: 16 }}>
-          Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY (see repo README).
-        </Text>
+        <View style={[styles.callout, { backgroundColor: c.card, borderColor: c.border }]}>
+          <View style={[styles.calloutIcon, { backgroundColor: c.background }]}>
+            <Ionicons name="cloud-offline-outline" size={24} color={c.tint} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.calloutTitle, { color: c.text }]}>Backend not configured</Text>
+            <Text style={[styles.calloutBody, { color: c.textMuted }]}>
+              Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in apps/mobile/.env (see
+              README), then restart the app.
+            </Text>
+          </View>
+        </View>
       ) : null}
 
       {user ? (
         <>
-          <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Text style={{ color: c.textMuted, fontSize: 13 }}>Signed in as</Text>
-            <Text style={[styles.email, { color: c.text }]}>{user.email}</Text>
-            <Pressable onPress={copyId} style={{ marginTop: 8 }}>
-              <Text style={{ color: c.tint, fontWeight: '600' }}>Copy user id (for friends)</Text>
-            </Pressable>
-            <Text selectable style={{ color: c.textMuted, fontSize: 12, marginTop: 4 }}>
-              {user.id}
-            </Text>
+          <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Signed in</Text>
+          <View style={[styles.accentCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={[styles.cardAccent, { backgroundColor: c.tint }]} />
+            <View style={styles.cardInner}>
+              <View style={styles.signedInHead}>
+                <View style={[styles.avatarPlaceholder, { backgroundColor: c.background }]}>
+                  <Ionicons name="person" size={28} color={c.tint} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.labelMuted, { color: c.textMuted }]}>Email</Text>
+                  <Text style={[styles.email, { color: c.text }]} numberOfLines={2}>
+                    {user.email}
+                  </Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={copyId}
+                style={[styles.copyBtn, { backgroundColor: c.background, borderColor: c.border }]}
+              >
+                <Ionicons name="copy-outline" size={20} color={c.tint} />
+                <Text style={{ color: c.tint, fontWeight: '700', marginLeft: 10 }}>Copy user id</Text>
+                <Text style={{ color: c.textMuted, fontSize: 12, marginLeft: 'auto' }}>for friends</Text>
+              </Pressable>
+              <Text selectable style={[styles.userId, { color: c.textMuted }]}>
+                {user.id}
+              </Text>
+            </View>
           </View>
 
-          <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Text style={[styles.section, { color: c.text }]}>Privacy (compare)</Text>
-            <Text style={{ color: c.textMuted, fontSize: 13, marginBottom: 12 }}>
-              Only accepted friends see enabled stats.
-            </Text>
-            <TextInput
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Display name"
-              placeholderTextColor={c.textMuted}
-              style={[styles.input, { color: c.text, borderColor: c.border }]}
-            />
-            <Row
-              label="Share 7-day volume"
-              value={shareVol}
-              onValueChange={setShareVol}
-              c={c}
-            />
-            <Row
-              label="Share session count (7d)"
-              value={shareSessions}
-              onValueChange={setShareSessions}
-              c={c}
-            />
-            <Row label="Share best lift label" value={shareBest} onValueChange={setShareBest} c={c} />
-            <Pressable
-              style={[styles.btn, { backgroundColor: c.tint, opacity: busy ? 0.6 : 1 }]}
-              onPress={savePrivacy}
-              disabled={busy}
-            >
-              <Text style={styles.btnText}>Save privacy</Text>
-            </Pressable>
+          <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Privacy · Compare</Text>
+          <View style={[styles.accentCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={[styles.cardAccent, { backgroundColor: c.tint }]} />
+            <View style={styles.cardInner}>
+              <View style={styles.privacyIntro}>
+                <Ionicons name="people-outline" size={22} color={c.tint} />
+                <Text style={[styles.privacyIntroText, { color: c.textMuted }]}>
+                  Only accepted friends see the stats you enable below.
+                </Text>
+              </View>
+
+              <Text style={[styles.fieldLabel, { color: c.textMuted }]}>Display name</Text>
+              <TextInput
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="How friends see you"
+                placeholderTextColor={c.textMuted}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+              />
+
+              <PrivacyRow
+                c={c}
+                icon="bar-chart-outline"
+                label="Share 7-day volume"
+                value={shareVol}
+                onValueChange={setShareVol}
+              />
+              <PrivacyRow
+                c={c}
+                icon="calendar-outline"
+                label="Share session count (7d)"
+                value={shareSessions}
+                onValueChange={setShareSessions}
+              />
+              <PrivacyRow
+                c={c}
+                icon="trophy-outline"
+                label="Share best lift label"
+                value={shareBest}
+                onValueChange={setShareBest}
+              />
+
+              <Pressable
+                style={[
+                  styles.primaryBtn,
+                  { backgroundColor: c.tint, opacity: savingPrivacy ? 0.65 : 1 },
+                ]}
+                onPress={savePrivacy}
+                disabled={savingPrivacy || syncing}
+              >
+                {savingPrivacy ? (
+                  <ActivityIndicator color={c.onTintLight} />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={22} color={c.onTintLight} />
+                    <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save privacy</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
           </View>
+
+          <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Data</Text>
+          <Pressable
+            style={[
+              styles.syncCard,
+              {
+                backgroundColor: c.card,
+                borderColor: c.border,
+                opacity: syncing || savingPrivacy ? 0.65 : 1,
+              },
+            ]}
+            onPress={runSync}
+            disabled={syncing || savingPrivacy}
+          >
+            <View style={[styles.syncIconWrap, { backgroundColor: c.background }]}>
+              {syncing ? (
+                <ActivityIndicator color={c.tint} />
+              ) : (
+                <Ionicons name="cloud-upload-outline" size={24} color={c.tint} />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.syncTitle, { color: c.text }]}>
+                {syncing ? 'Syncing…' : 'Sync to cloud'}
+              </Text>
+              <Text style={[styles.syncSub, { color: c.textMuted }]}>
+                Push local changes, then pull from Supabase.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={c.textMuted} />
+          </Pressable>
 
           <Pressable
-            style={[styles.btn, { backgroundColor: c.card, borderWidth: 1, borderColor: c.border }]}
-            onPress={runSync}
-            disabled={busy}
+            onPress={() => signOut()}
+            style={[styles.signOutBtn, { borderColor: c.danger, backgroundColor: c.background }]}
           >
-            <Text style={{ color: c.text, fontWeight: '600' }}>Sync (push + pull)</Text>
+            <Ionicons name="log-out-outline" size={22} color={c.danger} />
+            <Text style={{ color: c.danger, fontWeight: '800', fontSize: 16, marginLeft: 10 }}>
+              Sign out
+            </Text>
           </Pressable>
-
-          <Pressable onPress={() => signOut()} style={{ marginTop: 24, marginBottom: 40 }}>
-            <Text style={{ color: c.danger, fontWeight: '600' }}>Sign out</Text>
-          </Pressable>
+          <Text style={[styles.signOutHint, { color: c.textMuted }]}>
+            Signing out removes all workouts, routines, and exercises from this device. You can keep
+            training locally without an account; sign in again to sync.
+          </Text>
         </>
       ) : (
-        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Text style={{ color: c.textMuted, marginBottom: 12 }}>
-            Sign up or sign in with email. Use at least 6 characters for the password (Supabase
-            default).
-          </Text>
-          <TextInput
-            autoCapitalize="none"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="Email"
-            placeholderTextColor={c.textMuted}
-            style={[styles.input, { color: c.text, borderColor: c.border }]}
-          />
-          <TextInput
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Password (min 6 characters)"
-            placeholderTextColor={c.textMuted}
-            style={[styles.input, { color: c.text, borderColor: c.border }]}
-          />
-          <Pressable
-            style={[styles.btn, { backgroundColor: c.tint }]}
-            onPress={async () => {
-              const e = email.trim();
-              if (!e) {
-                Alert.alert('Sign in', 'Enter your email.');
-                return;
-              }
-              const { error } = await signIn(e, password);
-              if (error) Alert.alert('Sign in', error.message);
-            }}
-          >
-            <Text style={styles.btnText}>Sign in</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.btn, { backgroundColor: c.border, marginTop: 10 }]}
-            onPress={async () => {
-              const e = email.trim();
-              if (!e) {
-                Alert.alert('Sign up', 'Enter your email.');
-                return;
-              }
-              if (password.length < 6) {
-                Alert.alert('Sign up', 'Password must be at least 6 characters.');
-                return;
-              }
-              const { error, session: newSession } = await signUp(e, password);
-              if (error) {
-                Alert.alert('Sign up', error.message);
-                return;
-              }
-              if (newSession) {
-                Alert.alert('Welcome', 'You are signed in.');
-              } else {
-                Alert.alert(
-                  'Check your email',
-                  'Open the confirmation link from Supabase, then return here and sign in.\n\n' +
-                    'For local testing you can turn off “Confirm email” in the Supabase dashboard (see README).'
-                );
-              }
-            }}
-          >
-            <Text style={[styles.btnText, { color: c.text }]}>Create account</Text>
-          </Pressable>
+        <View style={[styles.accentCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          <View style={[styles.cardAccent, { backgroundColor: c.tint }]} />
+          <View style={styles.cardInner}>
+            <View style={styles.authIntro}>
+              <Ionicons name="phone-portrait-outline" size={26} color={c.tint} />
+              <Text style={[styles.authIntroText, { color: c.textMuted }]}>
+                Workouts and routines stay on this device until you sign in. Use the sign-in screen to
+                create an account or log in and sync.
+              </Text>
+            </View>
+            <Link href="/sign-in" asChild>
+              <Pressable
+                style={[styles.primaryBtn, { backgroundColor: c.tint, opacity: backendReady ? 1 : 0.55 }]}
+                disabled={!backendReady}
+              >
+                <Ionicons name="log-in-outline" size={22} color={c.onTintLight} />
+                <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Open sign in</Text>
+              </Pressable>
+            </Link>
+            {!backendReady ? (
+              <Text style={[styles.signOutHint, { color: c.textMuted, marginTop: 8, marginBottom: 0 }]}>
+                Configure Supabase in .env first (see README), then you can sign in here.
+              </Text>
+            ) : null}
+          </View>
         </View>
       )}
     </ScrollView>
   );
 }
 
-function Row({
+function PrivacyRow({
+  icon,
   label,
   value,
   onValueChange,
   c,
 }: {
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: boolean;
   onValueChange: (v: boolean) => void;
   c: ReturnType<typeof useColors>;
 }) {
   return (
-    <View style={styles.row}>
-      <Text style={{ color: c.text, flex: 1 }}>{label}</Text>
+    <View style={[styles.privacyRow, { backgroundColor: c.background, borderColor: c.border }]}>
+      <Ionicons name={icon} size={20} color={c.tint} style={{ marginRight: 12 }} />
+      <Text style={{ color: c.text, flex: 1, fontWeight: '600', fontSize: 15 }}>{label}</Text>
       <Switch value={value} onValueChange={onValueChange} trackColor={{ true: c.tint }} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: 'center' },
-  content: { padding: 20, paddingBottom: 48 },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 16 },
-  card: { borderRadius: 14, padding: 16, borderWidth: 1, marginBottom: 16, gap: 10 },
-  email: { fontSize: 16, fontWeight: '600' },
-  section: { fontSize: 17, fontWeight: '600' },
-  input: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 16 },
-  btn: { paddingVertical: 14, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-  btnText: { color: '#0f1419', fontWeight: '700' },
-  row: { flexDirection: 'row', alignItems: 'center', marginVertical: 6 },
+  loadingRoot: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
+  loadingText: { fontSize: 15, fontWeight: '600' },
+  content: { paddingBottom: 48 },
+  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 },
+  kicker: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  title: { fontSize: 28, fontWeight: '800', marginTop: 6, letterSpacing: -0.3 },
+  sub: { fontSize: 15, lineHeight: 22, marginTop: 8 },
+  callout: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 14,
+    alignItems: 'flex-start',
+  },
+  calloutIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calloutTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
+  calloutBody: { fontSize: 14, lineHeight: 20 },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 22,
+    marginBottom: 10,
+    marginHorizontal: 20,
+  },
+  accentCard: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  cardAccent: { width: 4 },
+  cardInner: { flex: 1, padding: 18, gap: 12 },
+  signedInHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  avatarPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  labelMuted: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
+  email: { fontSize: 17, fontWeight: '800', marginTop: 2 },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  userId: { fontSize: 11, fontFamily: 'monospace', lineHeight: 16, marginTop: 4 },
+  privacyIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 4 },
+  privacyIntroText: { flex: 1, fontSize: 14, lineHeight: 20 },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  privacyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  primaryBtnText: { fontWeight: '800', fontSize: 17 },
+  syncCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 14,
+  },
+  syncIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncTitle: { fontSize: 17, fontWeight: '800' },
+  syncSub: { fontSize: 13, marginTop: 2, lineHeight: 18 },
+  signOutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 16,
+    marginTop: 20,
+    paddingVertical: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  signOutHint: {
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 32,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  authIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 8 },
+  authIntroText: { flex: 1, fontSize: 14, lineHeight: 20 },
 });

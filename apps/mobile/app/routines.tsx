@@ -1,3 +1,4 @@
+import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import type { WorkoutTemplate } from '@gymbros/shared';
@@ -15,6 +16,7 @@ import {
 
 export default function RoutinesScreen() {
   const c = useColors();
+  const { localDataVersion } = useAuth();
   const router = useRouter();
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
 
@@ -22,7 +24,7 @@ export default function RoutinesScreen() {
     setTemplates(repo.listTemplates());
   }, []);
 
-  useFocusEffect(useCallback(() => load(), [load]));
+  useFocusEffect(useCallback(() => load(), [load, localDataVersion]));
 
   const remove = (t: WorkoutTemplate) => {
     Alert.alert('Delete routine', `Remove “${t.name}”?`, [
@@ -46,7 +48,8 @@ export default function RoutinesScreen() {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <Text style={[styles.sub, { color: c.textMuted }]}>
-            Ordered lists of exercises. Start one from the Workout tab or build it here.
+            Ordered exercise lists. Start from the Workout tab or build here. Use Account → Sync to
+            back up routines to the cloud.
           </Text>
         }
         ListEmptyComponent={
@@ -85,7 +88,7 @@ export default function RoutinesScreen() {
         style={[styles.fab, { backgroundColor: c.tint }]}
         onPress={() => router.push('/routine-builder')}
       >
-        <Text style={styles.fabText}>New routine</Text>
+        <Text style={[styles.fabText, { color: c.onTint }]}>New routine</Text>
       </Pressable>
     </View>
   );
@@ -107,5 +110,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
-  fabText: { color: '#0f1419', fontWeight: '700', fontSize: 16 },
+  fabText: { fontWeight: '700', fontSize: 16 },
 });

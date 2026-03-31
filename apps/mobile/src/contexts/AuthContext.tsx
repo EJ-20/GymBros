@@ -1,6 +1,9 @@
 import type { Session, User } from '@supabase/supabase-js';
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { resetLocalDatabase } from '@/src/db/resetLocalDatabase';
+import { SIGN_IN_PROMPT_DISMISS_KEY } from '@/src/lib/storageKeys';
 import { getSupabase, supabaseConfigured } from '@/src/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 export type SignUpResult = {
   error: Error | null;
@@ -12,6 +15,8 @@ type AuthContextValue = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  /** Increments after sign-out clears local DB; use to refresh screens that read SQLite. */
+  localDataVersion: number;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
@@ -23,6 +28,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [localDataVersion, setLocalDataVersion] = useState(0);
 
   useEffect(() => {
     const sb = getSupabase();
@@ -60,12 +66,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     const sb = getSupabase();
     if (sb) await sb.auth.signOut();
+    try {
+      resetLocalDatabase();
+    } catch (e) {
+      console.error('resetLocalDatabase after sign out', e);
+    }
+    try {
+      await AsyncStorage.removeItem(SIGN_IN_PROMPT_DISMISS_KEY);
+    } catch {
+      /* ignore */
+    }
+    setLocalDataVersion((v) => v + 1);
   }, []);
 
   const value: AuthContextValue = {
     user: session?.user ?? null,
     session,
     loading,
+    localDataVersion,
     signIn,
     signUp,
     signOut,

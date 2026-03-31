@@ -2,7 +2,8 @@ import { useColors } from '@/src/hooks/useColors';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { buildCoachContextSummary } from '@/src/lib/coachContext';
 import { getSupabase } from '@/src/lib/supabase';
-import { useState } from 'react';
+import { Link } from 'expo-router';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,12 +30,20 @@ export default function CoachScreen() {
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const listRef = useRef<ComponentRef<typeof FlatList>>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      listRef.current?.scrollToEnd({ animated: true });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [messages.length, sending]);
 
   const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
     if (!user || !backendReady) {
-      Alert.alert('Sign in', 'Coach uses your cloud session. Sign in under Account.');
+      Alert.alert('Sign in', 'Coach uses your cloud session. Open Sign in from the person menu.');
       return;
     }
     const sb = getSupabase();
@@ -59,7 +68,11 @@ export default function CoachScreen() {
     setSending(false);
 
     if (error) {
-      Alert.alert('Coach', error.message ?? 'Could not reach AI. Deploy the ai-coach edge function and set OPENAI_API_KEY.');
+      Alert.alert(
+        'Coach',
+        error.message ??
+          'Could not reach the coach. Deploy the ai-coach Edge Function and set OPENAI_API_KEY in Supabase (see README).'
+      );
       return;
     }
     const reply = (data as { reply?: string; error?: string })?.reply;
@@ -68,7 +81,11 @@ export default function CoachScreen() {
       Alert.alert('Coach', err);
       return;
     }
-    if (reply) setMessages((m) => [...m, { role: 'assistant', text: reply }]);
+    if (reply) {
+      setMessages((m) => [...m, { role: 'assistant', text: reply }]);
+    } else {
+      Alert.alert('Coach', 'No reply from the server. Check that the ai-coach function is deployed.');
+    }
   };
 
   return (
@@ -78,9 +95,12 @@ export default function CoachScreen() {
       keyboardVerticalOffset={88}
     >
       <FlatList
+        ref={listRef}
         data={messages}
         keyExtractor={(_, i) => String(i)}
-        contentContainerStyle={{ padding: 16, gap: 10 }}
+        contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 8 }}
+        keyboardShouldPersistTaps="handled"
+        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         renderItem={({ item }) => (
           <View
             style={[
@@ -90,13 +110,31 @@ export default function CoachScreen() {
                 : { alignSelf: 'flex-start', backgroundColor: c.card, borderColor: c.border, borderWidth: 1 },
             ]}
           >
-            <Text style={item.role === 'user' ? styles.bubbleUserText : { color: c.text }}>
+            <Text
+              style={
+                item.role === 'user' ? [styles.bubbleUserText, { color: c.onTint }] : { color: c.text }
+              }
+            >
               {item.text}
             </Text>
           </View>
         )}
       />
       <View style={[styles.footer, { borderTopColor: c.border, backgroundColor: c.card }]}>
+        {!user || !backendReady ? (
+          <View style={{ marginBottom: 8, gap: 6 }}>
+            <Text style={{ color: c.textMuted, fontSize: 13, lineHeight: 18 }}>
+              Sign in (person menu) and configure Supabase to message the coach.
+            </Text>
+            {backendReady && !user ? (
+              <Link href="/sign-in" asChild>
+                <Pressable hitSlop={8}>
+                  <Text style={{ color: c.tint, fontSize: 14, fontWeight: '800' }}>Open sign in</Text>
+                </Pressable>
+              </Link>
+            ) : null}
+          </View>
+        ) : null}
         {sending ? <ActivityIndicator color={c.tint} style={{ marginBottom: 8 }} /> : null}
         <View style={styles.inputRow}>
           <TextInput
@@ -112,7 +150,7 @@ export default function CoachScreen() {
             disabled={sending}
             style={[styles.send, { backgroundColor: c.tint, opacity: sending ? 0.5 : 1 }]}
           >
-            <Text style={styles.sendText}>Send</Text>
+            <Text style={[styles.sendText, { color: c.onTint }]}>Send</Text>
           </Pressable>
         </View>
       </View>
@@ -122,7 +160,7 @@ export default function CoachScreen() {
 
 const styles = StyleSheet.create({
   bubble: { maxWidth: '88%', padding: 12, borderRadius: 14 },
-  bubbleUserText: { color: '#0f1419' },
+  bubbleUserText: {},
   footer: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth },
   inputRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
   input: {
@@ -135,5 +173,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   send: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
-  sendText: { color: '#0f1419', fontWeight: '700' },
+  sendText: { fontWeight: '700' },
 });

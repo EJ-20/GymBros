@@ -37,9 +37,9 @@ npm run start --workspace=apps/mobile
 
 **Web:** Workouts use [sql.js](https://sql.js.org/) (WASM loaded from `sql.js.org`) because the `expo-sqlite` npm package does not ship `wa-sqlite.wasm`, so the browser never loads `expo-sqlite`’s broken web worker. iOS/Android still use `expo-sqlite` on device. The first web load needs network access to fetch the WASM file.
 
-**Routines:** Saved locally in `workout_templates` (exercise order). Create/edit under **Routines** (from Today or Workout), **Start from routine** on the Workout tab, or **Save as routine** during an active session (order follows first logged set per exercise).
+**Routines:** Saved in `workout_templates` (exercise order). Create/edit under **Routines** (from Today or Workout), **Start from routine** on the Workout tab, or **Save as routine** during an active session (order follows first logged set per exercise). They sync with **Account → Sync** once the `workout_templates` table exists in Supabase (second migration file).
 
-**Sync:** Account → **Sync (push + pull)** uploads dirty local rows, then downloads your `exercises`, `workout_sessions`, and `set_logs` from Supabase and merges them into SQLite. Local rows still marked dirty (unsent changes) are not overwritten on pull until you sync again after a successful push.
+**Sync:** Account → **Sync (push + pull)** uploads dirty local rows, then downloads `exercises`, `workout_sessions`, `set_logs`, and `workout_templates` from Supabase and merges them into SQLite. Local rows still marked dirty (unsent changes) are not overwritten on pull until you sync again after a successful push.
 
 ## Supabase setup
 
@@ -104,7 +104,7 @@ Optional: **Authentication** → **Rate limits** — relax or disable for dev if
    supabase db push
    ```
 
-   **Or without the CLI:** Supabase dashboard → **SQL Editor** → **New query** → paste the full contents of [supabase/migrations/20250330000000_initial.sql](supabase/migrations/20250330000000_initial.sql) → **Run**.
+   **Or without the CLI:** **SQL Editor** → run each file in [supabase/migrations](supabase/migrations) in filename order (e.g. `20250330000000_initial.sql`, then [20250330100000_workout_templates.sql](supabase/migrations/20250330100000_workout_templates.sql) for saved routines).
 
 3. If tables already exist but the API still complains, wait a minute or in **Project Settings** → **API** use options to refresh/restart if your plan shows them; usually a fresh `db push` is enough.
 

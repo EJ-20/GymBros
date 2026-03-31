@@ -1,3 +1,4 @@
+import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import type { Exercise } from '@gymbros/shared';
@@ -16,6 +17,7 @@ import {
 
 export default function RoutineBuilderScreen() {
   const c = useColors();
+  const { localDataVersion } = useAuth();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isEdit = Boolean(id);
@@ -31,8 +33,14 @@ export default function RoutineBuilderScreen() {
     if (t) {
       setName(t.name);
       setExerciseIds([...t.exerciseIds]);
+    } else {
+      Alert.alert(
+        'Routine not found',
+        'It may have been removed, or local data was cleared (for example after signing out).',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
     }
-  }, [id]);
+  }, [id, router, localDataVersion]);
 
   const addExercise = useCallback((ex: Exercise) => {
     setExerciseIds((prev) => [...prev, ex.id]);
@@ -135,7 +143,7 @@ export default function RoutineBuilderScreen() {
         />
 
         <Modal visible={pickerOpen} animationType="slide" transparent>
-          <View style={styles.modalBackdrop}>
+          <View style={[styles.modalBackdrop, { backgroundColor: c.overlay }]}>
             <View style={[styles.modalCard, { backgroundColor: c.card }]}>
               <Text style={[styles.modalTitle, { color: c.text }]}>Pick exercise</Text>
               <FlatList
@@ -189,7 +197,6 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'flex-end',
   },
   modalCard: {

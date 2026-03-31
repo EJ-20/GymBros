@@ -42,7 +42,10 @@ export const TABLE_SCHEMA = `
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
       exercise_ids TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      remote_id TEXT,
+      dirty INTEGER NOT NULL DEFAULT 0,
+      deleted_at TEXT
     );
     CREATE TABLE IF NOT EXISTS sync_meta (
       key TEXT PRIMARY KEY,
@@ -62,9 +65,33 @@ export type DbSync = {
   getAllSync: <T extends Record<string, unknown>>(sql: string, params?: unknown[]) => T[];
 };
 
+function ensureWorkoutTemplatesSyncColumns(d: DbSync): void {
+  const rows = d.getAllSync<{ name: string }>('PRAGMA table_info(workout_templates)');
+  const names = new Set(rows.map((r) => r.name));
+  let added = false;
+  if (!names.has('remote_id')) {
+    d.execSync('ALTER TABLE workout_templates ADD COLUMN remote_id TEXT');
+    added = true;
+  }
+  if (!names.has('dirty')) {
+    d.execSync('ALTER TABLE workout_templates ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0');
+    added = true;
+  }
+  if (!names.has('deleted_at')) {
+    d.execSync('ALTER TABLE workout_templates ADD COLUMN deleted_at TEXT');
+    added = true;
+  }
+  if (added) {
+    d.runSync(
+      'UPDATE workout_templates SET dirty = 1 WHERE remote_id IS NULL AND deleted_at IS NULL'
+    );
+  }
+}
+
 export function runInitialSetup(db: DbSync): void {
   db.execSync('PRAGMA foreign_keys = ON;');
   db.execSync(TABLE_SCHEMA);
+  ensureWorkoutTemplatesSyncColumns(db);
 
   const seeded = db.getFirstSync<{ value: string }>(
     "SELECT value FROM sync_meta WHERE key = 'seeded_exercises'"

@@ -6,7 +6,7 @@ const PAGE = 500;
 
 async function fetchAll<T extends Record<string, unknown>>(
   sb: SupabaseClient,
-  table: 'exercises' | 'workout_sessions' | 'set_logs',
+  table: 'exercises' | 'workout_sessions' | 'set_logs' | 'workout_templates',
   columns: string
 ): Promise<{ rows: T[]; error: string | null }> {
   let start = 0;
@@ -30,7 +30,7 @@ export async function syncToCloud(userId: string): Promise<{ error: string | nul
   const sb = getSupabase();
   if (!sb) return { error: 'No client' };
 
-  const { exercises, sessions, sets } = repo.listDirtyRows();
+  const { exercises, sessions, sets, templates } = repo.listDirtyRows();
 
   for (const ex of exercises) {
     const { error } = await sb.from('exercises').upsert(
@@ -84,6 +84,22 @@ export async function syncToCloud(userId: string): Promise<{ error: string | nul
     repo.markSynced('set_logs', st.id as string, st.id as string);
   }
 
+  for (const t of templates) {
+    const { error } = await sb.from('workout_templates').upsert(
+      {
+        user_id: userId,
+        client_local_id: t.id as string,
+        name: t.name as string,
+        exercise_ids: t.exercise_ids as string,
+        created_at: t.created_at as string,
+        deleted_at: (t.deleted_at as string | null) ?? null,
+      },
+      { onConflict: 'user_id,client_local_id' }
+    );
+    if (error) return { error: error.message };
+    repo.markSynced('workout_templates', t.id as string, t.id as string);
+  }
+
   return { error: null };
 }
 
@@ -118,6 +134,15 @@ type RemoteSet = {
   rpe: number | null;
 };
 
+type RemoteTemplate = {
+  id: string;
+  client_local_id: string;
+  name: string;
+  exercise_ids: string;
+  created_at: string;
+  deleted_at: string | null;
+};
+
 /**
  * Download remote rows and merge into SQLite.
  * Order: exercises → sessions → sets (FKs use client ids).
@@ -125,7 +150,7 @@ type RemoteSet = {
  */
 export async function pullFromCloud(): Promise<{
   error: string | null;
-  pulled?: { exercises: number; sessions: number; sets: number };
+  pulled?: { exercises: number; sessions: number; sets: number; routines: number };
 }> {
   if (!supabaseConfigured) return { error: 'Backend not configured' };
   const sb = getSupabase();
@@ -153,6 +178,13 @@ export async function pullFromCloud(): Promise<{
     'id, client_local_id, session_client_id, exercise_client_id, order_index, reps, weight_kg, duration_sec, rpe'
   );
   if (st.error) return { error: st.error };
+
+  const tpl = await fetchAll<RemoteTemplate>(
+    sb,
+    'workout_templates',
+    'id, client_local_id, name, exercise_ids, created_at, deleted_at'
+  );
+  if (tpl.error) return { error: tpl.error };
 
   for (const row of ex.rows) {
     repo.mergeExerciseFromRemote(
@@ -197,12 +229,24 @@ export async function pullFromCloud(): Promise<{
     );
   }
 
+  for (const row of tpl.rows) {
+    repo.mergeTemplateFromRemote(
+      row.id,
+      row.client_local_id,
+      row.name,
+      row.exercise_ids,
+      row.created_at,
+      row.deleted_at ?? null
+    );
+  }
+
   return {
     error: null,
     pulled: {
       exercises: ex.rows.length,
       sessions: ws.rows.length,
       sets: st.rows.length,
+      routines: tpl.rows.length,
     },
   };
 }
@@ -210,11 +254,42 @@ export async function pullFromCloud(): Promise<{
 /** Push local changes, then pull from Supabase. */
 export async function syncAll(userId: string): Promise<{
   error: string | null;
-  pulled?: { exercises: number; sessions: number; sets: number };
+  pulled?: { exercises: number; sessions: number; sets: number; routines: number };
 }> {
   const push = await syncToCloud(userId);
   if (push.error) return push;
   return pullFromCloud();
+}
+
+/**
+ * Deletes a completed workout from Supabase (set_logs for that session, then workout_sessions).
+ * Returns attempted: true only when a signed-in user was used for the API calls.
+ */
+export async function deleteSessionFromCloud(
+  sessionClientLocalId: string
+): Promise<{ error: string | null; attempted: boolean }> {
+  if (!supabaseConfigured) return { error: null, attempted: false };
+  const sb = getSupabase();
+  if (!sb) return { error: null, attempted: false };
+  const { data: auth } = await sb.auth.getUser();
+  if (!auth.user) return { error: null, attempted: false };
+  const uid = auth.user.id;
+
+  const { error: e1 } = await sb
+    .from('set_logs')
+    .delete()
+    .eq('user_id', uid)
+    .eq('session_client_id', sessionClientLocalId);
+  if (e1) return { error: e1.message, attempted: true };
+
+  const { error: e2 } = await sb
+    .from('workout_sessions')
+    .delete()
+    .eq('user_id', uid)
+    .eq('client_local_id', sessionClientLocalId);
+  if (e2) return { error: e2.message, attempted: true };
+
+  return { error: null, attempted: true };
 }
 
 export async function pullProfile(): Promise<{

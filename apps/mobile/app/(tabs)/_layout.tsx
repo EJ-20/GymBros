@@ -1,13 +1,17 @@
+import { SignInPromptBanner } from '@/src/components/SignInPromptBanner';
 import { useColors } from '@/src/hooks/useColors';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, Tabs } from 'expo-router';
-import { Pressable } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function TabLayout() {
   const c = useColors();
 
   return (
-    <Tabs
+    <View style={{ flex: 1, backgroundColor: c.background }}>
+      <SignInPromptBanner />
+      <Tabs
+      style={{ flex: 1 }}
       screenOptions={{
         tabBarActiveTintColor: c.tint,
         tabBarInactiveTintColor: c.tabIconDefault,
@@ -70,5 +74,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </View>
   );
 }

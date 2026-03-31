@@ -74,6 +74,14 @@ export default function RootLayout() {
                 headerShown: true,
               }}
             />
+            <Stack.Screen
+              name="sign-in"
+              options={{
+                title: 'Sign in',
+                presentation: 'modal',
+                headerShown: true,
+              }}
+            />
           </Stack>
         </AuthProvider>
       </ThemeProvider>

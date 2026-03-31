@@ -78,6 +78,14 @@ export function listSessions(limit = 50): WorkoutSession[] {
   return rows.map(rowToSession);
 }
 
+export function countCompletedSessions(): number {
+  const d = getDb();
+  const r = d.getFirstSync<{ n: number }>(
+    'SELECT COUNT(*) as n FROM workout_sessions WHERE ended_at IS NOT NULL'
+  );
+  return Number(r?.n ?? 0);
+}
+
 export function getActiveSession(): WorkoutSession | null {
   const d = getDb();
   const r = d.getFirstSync<Record<string, unknown>>(
@@ -119,6 +127,18 @@ export function endSession(
      perceived_exertion = COALESCE(?, perceived_exertion), dirty = 1 WHERE id = ?`,
     [ended, notes ?? null, perceivedExertion ?? null, sessionId]
   );
+}
+
+/** Removes a finished session and its sets from the local DB. Ignores active (unended) sessions. */
+export function deleteCompletedSession(sessionId: string): void {
+  const d = getDb();
+  const row = d.getFirstSync<{ ended_at: string | null }>(
+    'SELECT ended_at FROM workout_sessions WHERE id = ?',
+    [sessionId]
+  );
+  if (!row?.ended_at) return;
+  d.runSync('DELETE FROM set_logs WHERE session_id = ?', [sessionId]);
+  d.runSync('DELETE FROM workout_sessions WHERE id = ?', [sessionId]);
 }
 
 export function listSetsForSession(sessionId: string): SetLog[] {
@@ -214,17 +234,21 @@ export function listDirtyRows(): {
   exercises: Record<string, unknown>[];
   sessions: Record<string, unknown>[];
   sets: Record<string, unknown>[];
+  templates: Record<string, unknown>[];
 } {
   const d = getDb();
   return {
     exercises: d.getAllSync<Record<string, unknown>>('SELECT * FROM exercises WHERE dirty = 1'),
     sessions: d.getAllSync<Record<string, unknown>>('SELECT * FROM workout_sessions WHERE dirty = 1'),
     sets: d.getAllSync<Record<string, unknown>>('SELECT * FROM set_logs WHERE dirty = 1'),
+    templates: d.getAllSync<Record<string, unknown>>(
+      'SELECT * FROM workout_templates WHERE dirty = 1'
+    ),
   };
 }
 
 export function markSynced(
-  table: 'exercises' | 'workout_sessions' | 'set_logs',
+  table: 'exercises' | 'workout_sessions' | 'set_logs' | 'workout_templates',
   localId: string,
   remoteId: string
 ): void {
@@ -334,6 +358,30 @@ export function mergeSetFromRemote(
   );
 }
 
+export function mergeTemplateFromRemote(
+  serverId: string,
+  clientLocalId: string,
+  name: string,
+  exerciseIdsJson: string,
+  createdAt: string,
+  deletedAt: string | null
+): void {
+  const d = getDb();
+  d.runSync(
+    `INSERT INTO workout_templates (id, name, exercise_ids, created_at, remote_id, dirty, deleted_at)
+     VALUES (?, ?, ?, ?, ?, 0, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       exercise_ids = excluded.exercise_ids,
+       created_at = excluded.created_at,
+       remote_id = excluded.remote_id,
+       deleted_at = excluded.deleted_at,
+       dirty = 0
+     WHERE workout_templates.dirty = 0`,
+    [clientLocalId, name, exerciseIdsJson, createdAt, serverId, deletedAt]
+  );
+}
+
 /** Recent completed sessions for AI / summary (last N). */
 function rowToTemplate(r: Record<string, unknown>): WorkoutTemplate {
   let exerciseIds: string[] = [];
@@ -357,7 +405,7 @@ function rowToTemplate(r: Record<string, unknown>): WorkoutTemplate {
 export function listTemplates(): WorkoutTemplate[] {
   const d = getDb();
   const rows = d.getAllSync<Record<string, unknown>>(
-    'SELECT * FROM workout_templates ORDER BY created_at DESC'
+    'SELECT * FROM workout_templates WHERE deleted_at IS NULL ORDER BY created_at DESC'
   );
   return rows.map(rowToTemplate);
 }
@@ -365,7 +413,7 @@ export function listTemplates(): WorkoutTemplate[] {
 export function getTemplate(id: string): WorkoutTemplate | null {
   const d = getDb();
   const r = d.getFirstSync<Record<string, unknown>>(
-    'SELECT * FROM workout_templates WHERE id = ?',
+    'SELECT * FROM workout_templates WHERE id = ? AND deleted_at IS NULL',
     [id]
   );
   return r ? rowToTemplate(r) : null;
@@ -376,8 +424,8 @@ export function createTemplate(name: string, exerciseIds: string[]): WorkoutTemp
   const id = randomUUID();
   const now = new Date().toISOString();
   d.runSync(
-    `INSERT INTO workout_templates (id, name, exercise_ids, created_at)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT INTO workout_templates (id, name, exercise_ids, created_at, dirty)
+     VALUES (?, ?, ?, ?, 1)`,
     [id, name.trim(), JSON.stringify(exerciseIds), now]
   );
   return { id, name: name.trim(), exerciseIds, createdAt: now };
@@ -390,14 +438,19 @@ export function updateTemplate(
 ): void {
   const d = getDb();
   d.runSync(
-    `UPDATE workout_templates SET name = ?, exercise_ids = ? WHERE id = ?`,
+    `UPDATE workout_templates SET name = ?, exercise_ids = ?, dirty = 1 WHERE id = ? AND deleted_at IS NULL`,
     [name.trim(), JSON.stringify(exerciseIds), id]
   );
 }
 
+/** Soft delete so the removal can sync to Supabase. */
 export function deleteTemplate(id: string): void {
   const d = getDb();
-  d.runSync('DELETE FROM workout_templates WHERE id = ?', [id]);
+  const now = new Date().toISOString();
+  d.runSync(
+    'UPDATE workout_templates SET deleted_at = ?, dirty = 1 WHERE id = ? AND deleted_at IS NULL',
+    [now, id]
+  );
 }
 
 /** Exercises in the order the user first logged a set (SQLite rowid). */

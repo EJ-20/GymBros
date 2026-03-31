@@ -1,7 +1,9 @@
 import { bestSetFromHistory, isPrCandidate } from '@gymbros/shared';
+import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import { openWorkoutDeepLink } from '@/src/watch/WatchBridge';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -20,6 +22,7 @@ import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros
 
 export default function WorkoutScreen() {
   const c = useColors();
+  const { localDataVersion } = useAuth();
   const router = useRouter();
   const [session, setSession] = useState<WorkoutSession | null>(null);
   const [setsByExercise, setSetsByExercise] = useState<Record<string, SetLog[]>>({});
@@ -58,7 +61,7 @@ export default function WorkoutScreen() {
     setSetsByExercise(map);
   }, []);
 
-  useFocusEffect(useCallback(() => refresh(), [refresh]));
+  useFocusEffect(useCallback(() => refresh(), [refresh, localDataVersion]));
 
   const prefillFromHistory = (exerciseId: string, sessionIdForPrior: string) => {
     const prior = repo.listSetsForExerciseBeforeSession(exerciseId, sessionIdForPrior);
@@ -168,8 +171,8 @@ export default function WorkoutScreen() {
     }
     const r = parseInt(reps, 10);
     const w = parseFloat(weight);
-    if (Number.isNaN(r) || Number.isNaN(w)) {
-      Alert.alert('Invalid numbers', 'Enter reps and weight.');
+    if (!Number.isFinite(r) || r < 0 || !Number.isFinite(w) || w < 0) {
+      Alert.alert('Invalid numbers', 'Enter reps (0 or more) and weight in kg (0 for bodyweight).');
       return;
     }
     const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
@@ -190,34 +193,62 @@ export default function WorkoutScreen() {
 
   if (!session) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.background }]}>
-        <Text style={[styles.headline, { color: c.text }]}>No active workout</Text>
-        <Text style={[styles.muted, { color: c.textMuted }]}>
-          Start empty, follow a saved routine, or manage routines in the list.
-        </Text>
-        <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]} onPress={start}>
-          <Text style={styles.primaryBtnText}>Start workout</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.secondaryOutline, { borderColor: c.tint }]}
-          onPress={() => setPickRoutineOpen(true)}
+      <View style={[styles.idleRoot, { backgroundColor: c.background }]}>
+        <ScrollView
+          contentContainerStyle={styles.idleScroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={{ color: c.tint, fontWeight: '600' }}>Start from routine</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push('/routines')}>
-          <Text style={{ color: c.textMuted, marginTop: 8 }}>Manage routines →</Text>
-        </Pressable>
+          <Text style={[styles.idleKicker, { color: c.textMuted }]}>Workout</Text>
+          <Text style={[styles.idleTitle, { color: c.text }]}>No session yet</Text>
+          <Text style={[styles.idleSub, { color: c.textMuted }]}>
+            Start fresh, load a saved routine, or build lists under Routines.
+          </Text>
+
+          <View style={[styles.idleHero, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={[styles.idleHeroAccent, { backgroundColor: c.tint }]} />
+            <View style={styles.idleHeroInner}>
+              <Pressable
+                style={[styles.idlePrimary, { backgroundColor: c.tint }]}
+                onPress={start}
+              >
+                <Ionicons name="barbell-outline" size={22} color={c.onTintLight} />
+                <Text style={[styles.idlePrimaryText, { color: c.onTintLight }]}>Start workout</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.idleSecondary, { borderColor: c.tint, backgroundColor: c.background }]}
+                onPress={() => setPickRoutineOpen(true)}
+              >
+                <Ionicons name="list-outline" size={20} color={c.tint} />
+                <Text style={{ color: c.tint, fontWeight: '700', fontSize: 16 }}>Start from routine</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/routines')}
+                style={styles.idleLinkRow}
+              >
+                <Ionicons name="create-outline" size={18} color={c.textMuted} />
+                <Text style={{ color: c.tint, fontWeight: '600', marginLeft: 6 }}>Manage routines</Text>
+                <Ionicons name="chevron-forward" size={16} color={c.tint} style={{ marginLeft: 2 }} />
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
 
         <Modal visible={pickRoutineOpen} animationType="slide" transparent>
-          <View style={styles.modalBackdrop}>
-            <View style={[styles.modalCard, { backgroundColor: c.card }]}>
-              <Text style={[styles.modalTitle, { color: c.text }]}>Pick a routine</Text>
+          <View style={[styles.modalBackdrop, { backgroundColor: c.overlay }]}>
+            <View style={[styles.modalCard, { backgroundColor: c.card, borderColor: c.border }]}>
+              <View style={styles.modalHeaderRow}>
+                <Ionicons name="albums-outline" size={22} color={c.tint} />
+                <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
+                  Pick a routine
+                </Text>
+              </View>
               <FlatList
                 data={templates}
                 keyExtractor={(item) => item.id}
                 style={{ maxHeight: '65%' }}
                 ListEmptyComponent={
-                  <Text style={{ color: c.textMuted, marginBottom: 12 }}>
+                  <Text style={{ color: c.textMuted, marginBottom: 12, lineHeight: 20 }}>
                     No routines yet. Create one under Manage routines.
                   </Text>
                 }
@@ -226,15 +257,21 @@ export default function WorkoutScreen() {
                     onPress={() => startFromTemplate(item)}
                     style={[styles.pickRow, { borderBottomColor: c.border }]}
                   >
-                    <Text style={{ color: c.text, fontWeight: '600' }}>{item.name}</Text>
-                    <Text style={{ color: c.textMuted, fontSize: 13 }}>
-                      {item.exerciseIds.length} exercises
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: c.text, fontWeight: '700', fontSize: 16 }}>{item.name}</Text>
+                      <Text style={{ color: c.textMuted, fontSize: 13, marginTop: 2 }}>
+                        {item.exerciseIds.length} exercise{item.exerciseIds.length === 1 ? '' : 's'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
                   </Pressable>
                 )}
               />
-              <Pressable onPress={() => setPickRoutineOpen(false)} style={{ marginTop: 12 }}>
-                <Text style={{ color: c.tint }}>Cancel</Text>
+              <Pressable
+                onPress={() => setPickRoutineOpen(false)}
+                style={[styles.modalCancelBtn, { backgroundColor: c.background }]}
+              >
+                <Text style={{ color: c.text, fontWeight: '600' }}>Cancel</Text>
               </Pressable>
             </View>
           </View>
@@ -245,21 +282,41 @@ export default function WorkoutScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
-      <View style={[styles.banner, { backgroundColor: c.card, borderColor: c.border }]}>
-        <View>
-          <Text style={[styles.timer, { color: c.text }]}>{elapsedMin} min</Text>
-          <Pressable onPress={openSaveRoutine} hitSlop={8}>
-            <Text style={{ color: c.tint, fontSize: 13, marginTop: 4 }}>Save as routine</Text>
+      <View style={[styles.bannerWrap, { backgroundColor: c.card, borderBottomColor: c.border }]}>
+        <View style={[styles.bannerAccent, { backgroundColor: c.tint }]} />
+        <View style={styles.bannerInner}>
+          <View style={styles.bannerLeft}>
+            <View style={styles.bannerLiveRow}>
+              <View style={[styles.liveDot, { backgroundColor: c.tint }]} />
+              <Text style={[styles.bannerLabel, { color: c.tint }]}>Live session</Text>
+            </View>
+            <View style={styles.timerRow}>
+              <Text style={[styles.timerValue, { color: c.text }]}>{elapsedMin}</Text>
+              <Text style={[styles.timerUnit, { color: c.textMuted }]}>min</Text>
+            </View>
+            <Pressable onPress={openSaveRoutine} hitSlop={8} style={styles.saveRoutineRow}>
+              <Ionicons name="bookmark-outline" size={16} color={c.tint} />
+              <Text style={{ color: c.tint, fontSize: 14, fontWeight: '600', marginLeft: 6 }}>
+                Save as routine
+              </Text>
+            </Pressable>
+          </View>
+          <Pressable
+            onPress={end}
+            style={[styles.endBtn, { borderColor: c.danger, backgroundColor: c.background }]}
+          >
+            <Ionicons name="stop-circle" size={22} color={c.danger} />
+            <Text style={{ color: c.danger, fontWeight: '700', fontSize: 15, marginLeft: 6 }}>End</Text>
           </Pressable>
         </View>
-        <Pressable onPress={end} style={[styles.endBtn, { borderColor: c.danger }]}>
-          <Text style={{ color: c.danger, fontWeight: '600' }}>End</Text>
-        </Pressable>
       </View>
 
       {routineExerciseIds && routineExerciseIds.length > 0 ? (
-        <View style={[styles.routineStrip, { borderBottomColor: c.border }]}>
-          <Text style={[styles.routineLabel, { color: c.textMuted }]}>Routine</Text>
+        <View style={[styles.routineStrip, { backgroundColor: c.card, borderBottomColor: c.border }]}>
+          <View style={styles.routineTitleRow}>
+            <Ionicons name="git-branch-outline" size={16} color={c.textMuted} />
+            <Text style={[styles.routineLabel, { color: c.textMuted }]}>Routine</Text>
+          </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
             {routineExerciseIds.map((eid) => {
               const ex = repo.getExerciseById(eid);
@@ -271,14 +328,14 @@ export default function WorkoutScreen() {
                   style={[
                     styles.chip,
                     {
-                      backgroundColor: active ? c.tint : c.card,
-                      borderColor: c.border,
+                      backgroundColor: active ? c.tint : c.background,
+                      borderColor: active ? c.tint : c.border,
                     },
                   ]}
                 >
                   <Text
                     style={{
-                      color: active ? '#0f1419' : c.text,
+                      color: active ? c.onTintLight : c.text,
                       fontWeight: active ? '700' : '500',
                       fontSize: 13,
                     }}
@@ -294,66 +351,120 @@ export default function WorkoutScreen() {
       ) : null}
 
       <Pressable
-        style={[styles.secondaryBtn, { backgroundColor: c.card, borderColor: c.border }]}
+        style={[styles.exercisePickCard, { backgroundColor: c.card, borderColor: c.border }]}
         onPress={() => setPickerOpen(true)}
       >
-        <Text style={{ color: c.tint, fontWeight: '600' }}>
-          {selectedExerciseId
-            ? repo.getExerciseById(selectedExerciseId)?.name ?? 'Exercise'
-            : 'Select exercise'}
-        </Text>
+        <View style={[styles.exercisePickIcon, { backgroundColor: c.background }]}>
+          <Ionicons name="barbell-outline" size={22} color={c.tint} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[styles.exercisePickKicker, { color: c.textMuted }]}>Current exercise</Text>
+          <Text style={[styles.exercisePickName, { color: c.text }]} numberOfLines={1}>
+            {selectedExerciseId
+              ? repo.getExerciseById(selectedExerciseId)?.name ?? 'Exercise'
+              : 'Tap to select'}
+          </Text>
+          {selectedExerciseId ? (
+            <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+              {repo.getExerciseById(selectedExerciseId)?.muscleGroup ?? ''}
+            </Text>
+          ) : null}
+        </View>
+        <Ionicons name="chevron-down" size={22} color={c.textMuted} />
       </Pressable>
 
-      <View style={[styles.inputRow, { borderColor: c.border }]}>
-        <TextInput
-          style={[styles.input, { color: c.text, borderColor: c.border }]}
-          keyboardType="number-pad"
-          value={reps}
-          onChangeText={setReps}
-          placeholder="Reps"
-          placeholderTextColor={c.textMuted}
-        />
-        <TextInput
-          style={[styles.input, { color: c.text, borderColor: c.border }]}
-          keyboardType="decimal-pad"
-          value={weight}
-          onChangeText={setWeight}
-          placeholder="kg"
-          placeholderTextColor={c.textMuted}
-        />
-        <Pressable style={[styles.addSetBtn, { backgroundColor: c.tint }]} onPress={addSet}>
-          <Text style={styles.primaryBtnText}>Add set</Text>
-        </Pressable>
+      <View style={[styles.logPanel, { backgroundColor: c.card, borderColor: c.border }]}>
+        <Text style={[styles.logPanelTitle, { color: c.textMuted }]}>Log set</Text>
+        <View style={styles.inputRow}>
+          <View style={styles.inputCol}>
+            <Text style={[styles.inputLabel, { color: c.textMuted }]}>Reps</Text>
+            <TextInput
+              style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
+              keyboardType="number-pad"
+              value={reps}
+              onChangeText={setReps}
+              placeholder="0"
+              placeholderTextColor={c.textMuted}
+            />
+          </View>
+          <View style={styles.inputCol}>
+            <Text style={[styles.inputLabel, { color: c.textMuted }]}>Weight (kg)</Text>
+            <TextInput
+              style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
+              keyboardType="decimal-pad"
+              value={weight}
+              onChangeText={setWeight}
+              placeholder="0"
+              placeholderTextColor={c.textMuted}
+            />
+          </View>
+          <View style={styles.addBtnCol}>
+            <Text style={[styles.inputLabel, { color: 'transparent' }]}> </Text>
+            <Pressable style={[styles.addSetBtn, { backgroundColor: c.tint }]} onPress={addSet}>
+              <Ionicons name="add-circle-outline" size={22} color={c.onTintLight} />
+              <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Add</Text>
+            </Pressable>
+          </View>
+        </View>
       </View>
 
+      <Text style={[styles.sessionLogHeader, { color: c.textMuted }]}>This session</Text>
       <FlatList
         data={exerciseRows}
         keyExtractor={(item) => item.exercise.id}
-        contentContainerStyle={{ padding: 16, gap: 12 }}
+        contentContainerStyle={{ padding: 16, paddingTop: 8, gap: 12, paddingBottom: 32 }}
         renderItem={({ item }) => (
-          <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Text style={[styles.exName, { color: c.text }]}>{item.exercise.name}</Text>
-            {item.sets.map((s) => (
-              <Text key={s.id} style={{ color: c.textMuted }}>
-                Set {s.orderIndex + 1}: {s.reps} × {s.weightKg} kg
-                {s.rpe != null ? ` @ RPE ${s.rpe}` : ''}
+          <View style={[styles.sessionCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.sessionCardHead}>
+              <Ionicons name="barbell-outline" size={18} color={c.tint} style={{ marginRight: 8 }} />
+              <Text style={[styles.exName, { color: c.text, flex: 1 }]} numberOfLines={1}>
+                {item.exercise.name}
               </Text>
+              <Text style={{ color: c.textMuted, fontSize: 12, textTransform: 'capitalize' }}>
+                {String(item.exercise.muscleGroup).replace(/_/g, ' ')}
+              </Text>
+            </View>
+            <View style={[styles.setDivider, { backgroundColor: c.border }]} />
+            {item.sets.map((s) => (
+              <View key={s.id} style={styles.setRow}>
+                <View style={[styles.setBadge, { backgroundColor: c.background }]}>
+                  <Text style={{ color: c.tint, fontWeight: '800', fontSize: 12 }}>{s.orderIndex + 1}</Text>
+                </View>
+                <Text style={{ color: c.text, fontWeight: '600', flex: 1 }}>
+                  {s.reps} × {s.weightKg} kg
+                </Text>
+                {s.rpe != null ? (
+                  <Text style={{ color: c.textMuted, fontSize: 13 }}>RPE {s.rpe}</Text>
+                ) : null}
+              </View>
             ))}
           </View>
         )}
         ListEmptyComponent={
-          <Text style={{ color: c.textMuted, textAlign: 'center', marginTop: 24 }}>
-            Add exercises and sets as you train.
-          </Text>
+          <View style={styles.emptySession}>
+            <Ionicons name="layers-outline" size={40} color={c.textMuted} style={{ opacity: 0.5 }} />
+            <Text style={{ color: c.textMuted, textAlign: 'center', marginTop: 12, lineHeight: 20 }}>
+              Pick an exercise and tap Add to log your first set.
+            </Text>
+          </View>
         }
       />
 
       <Modal visible={pickerOpen} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: c.card }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Exercises</Text>
-            <Pressable onPress={() => setCustomOpen(true)} style={{ marginBottom: 12 }}>
-              <Text style={{ color: c.tint, fontWeight: '600' }}>+ Custom exercise</Text>
+        <View style={[styles.modalBackdrop, { backgroundColor: c.overlay }]}>
+          <View style={[styles.modalCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.modalHeaderRow}>
+              <Ionicons name="list-outline" size={22} color={c.tint} />
+              <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
+                Exercises
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setCustomOpen(true)}
+              style={[styles.customExerciseBtn, { backgroundColor: c.background, borderColor: c.tint }]}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={c.tint} />
+              <Text style={{ color: c.tint, fontWeight: '700', marginLeft: 8 }}>Custom exercise</Text>
             </Pressable>
             <FlatList
               data={exercises}
@@ -363,44 +474,65 @@ export default function WorkoutScreen() {
                   onPress={() => pickExercise(item)}
                   style={[styles.pickRow, { borderBottomColor: c.border }]}
                 >
-                  <Text style={{ color: c.text }}>{item.name}</Text>
-                  <Text style={{ color: c.textMuted, fontSize: 12 }}>{item.muscleGroup}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{item.name}</Text>
+                    <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>
+                      {String(item.muscleGroup).replace(/_/g, ' ')}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
                 </Pressable>
               )}
             />
-            <Pressable onPress={() => setPickerOpen(false)} style={{ marginTop: 12 }}>
-              <Text style={{ color: c.tint }}>Close</Text>
+            <Pressable
+              onPress={() => setPickerOpen(false)}
+              style={[styles.modalCancelBtn, { backgroundColor: c.background }]}
+            >
+              <Text style={{ color: c.text, fontWeight: '600' }}>Close</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       <Modal visible={customOpen} animationType="fade" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: c.card }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>New exercise</Text>
+        <View style={[styles.modalBackdrop, { backgroundColor: c.overlay }]}>
+          <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.modalHeaderRow}>
+              <Ionicons name="create-outline" size={22} color={c.tint} />
+              <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
+                New exercise
+              </Text>
+            </View>
             <TextInput
               value={customName}
               onChangeText={setCustomName}
               placeholder="Name"
               placeholderTextColor={c.textMuted}
-              style={[styles.input, { color: c.text, borderColor: c.border, marginBottom: 12 }]}
+              style={[
+                styles.input,
+                { color: c.text, borderColor: c.border, marginBottom: 16, backgroundColor: c.background },
+              ]}
             />
             <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]} onPress={addCustom}>
-              <Text style={styles.primaryBtnText}>Save & select</Text>
+              <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save & select</Text>
             </Pressable>
-            <Pressable onPress={() => setCustomOpen(false)} style={{ marginTop: 12 }}>
-              <Text style={{ color: c.tint }}>Cancel</Text>
+            <Pressable onPress={() => setCustomOpen(false)} style={{ marginTop: 12, alignItems: 'center' }}>
+              <Text style={{ color: c.textMuted, fontWeight: '600' }}>Cancel</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       <Modal visible={endWorkoutOpen} animationType="fade" transparent>
-        <View style={[styles.modalBackdrop, { justifyContent: 'center' }]}>
+        <View style={[styles.modalBackdrop, { backgroundColor: c.overlay, justifyContent: 'center' }]}>
           <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Finish workout</Text>
-            <Text style={{ color: c.textMuted, fontSize: 14, marginBottom: 12 }}>
+            <View style={styles.modalHeaderRow}>
+              <Ionicons name="checkmark-circle-outline" size={24} color={c.tint} />
+              <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
+                Finish workout
+              </Text>
+            </View>
+            <Text style={{ color: c.textMuted, fontSize: 14, marginBottom: 12, lineHeight: 20 }}>
               Optional session notes and how hard it felt (RPE 1–10).
             </Text>
             <TextInput
@@ -432,7 +564,12 @@ export default function WorkoutScreen() {
                   },
                 ]}
               >
-                <Text style={{ color: endRpe === null ? '#0f1419' : c.textMuted, fontWeight: '600' }}>
+                <Text
+                  style={{
+                    color: endRpe === null ? c.onTintLight : c.textMuted,
+                    fontWeight: '600',
+                  }}
+                >
                   Skip
                 </Text>
               </Pressable>
@@ -450,7 +587,7 @@ export default function WorkoutScreen() {
                 >
                   <Text
                     style={{
-                      color: endRpe === n ? '#0f1419' : c.text,
+                      color: endRpe === n ? c.onTintLight : c.text,
                       fontWeight: endRpe === n ? '700' : '500',
                     }}
                   >
@@ -463,20 +600,25 @@ export default function WorkoutScreen() {
               style={[styles.primaryBtn, { backgroundColor: c.tint, marginTop: 20 }]}
               onPress={confirmEndWorkout}
             >
-              <Text style={styles.primaryBtnText}>Save & end</Text>
+              <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save & end</Text>
             </Pressable>
-            <Pressable onPress={() => setEndWorkoutOpen(false)} style={{ marginTop: 12 }}>
-              <Text style={{ color: c.tint }}>Cancel</Text>
+            <Pressable onPress={() => setEndWorkoutOpen(false)} style={{ marginTop: 12, alignItems: 'center' }}>
+              <Text style={{ color: c.textMuted, fontWeight: '600' }}>Cancel</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       <Modal visible={saveRoutineOpen} animationType="fade" transparent>
-        <View style={[styles.modalBackdrop, { justifyContent: 'center' }]}>
+        <View style={[styles.modalBackdrop, { backgroundColor: c.overlay, justifyContent: 'center' }]}>
           <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Save as routine</Text>
-            <Text style={{ color: c.textMuted, fontSize: 14, marginBottom: 12 }}>
+            <View style={styles.modalHeaderRow}>
+              <Ionicons name="bookmark-outline" size={22} color={c.tint} />
+              <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
+                Save as routine
+              </Text>
+            </View>
+            <Text style={{ color: c.textMuted, fontSize: 14, marginBottom: 12, lineHeight: 20 }}>
               Uses exercise order from your first logged set per movement.
             </Text>
             <TextInput
@@ -484,16 +626,19 @@ export default function WorkoutScreen() {
               onChangeText={setSaveRoutineName}
               placeholder="Routine name"
               placeholderTextColor={c.textMuted}
-              style={[styles.input, { color: c.text, borderColor: c.border, marginBottom: 16 }]}
+              style={[
+                styles.input,
+                { color: c.text, borderColor: c.border, marginBottom: 16, backgroundColor: c.background },
+              ]}
             />
             <Pressable
               style={[styles.primaryBtn, { backgroundColor: c.tint }]}
               onPress={confirmSaveRoutine}
             >
-              <Text style={styles.primaryBtnText}>Save</Text>
+              <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save</Text>
             </Pressable>
-            <Pressable onPress={() => setSaveRoutineOpen(false)} style={{ marginTop: 12 }}>
-              <Text style={{ color: c.tint }}>Cancel</Text>
+            <Pressable onPress={() => setSaveRoutineOpen(false)} style={{ marginTop: 12, alignItems: 'center' }}>
+              <Text style={{ color: c.textMuted, fontWeight: '600' }}>Cancel</Text>
             </Pressable>
           </View>
         </View>
@@ -503,88 +648,207 @@ export default function WorkoutScreen() {
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, justifyContent: 'center', padding: 24, gap: 12 },
-  headline: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
-  muted: { textAlign: 'center', fontSize: 15 },
-  secondaryOutline: {
-    marginTop: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
+  idleRoot: { flex: 1 },
+  idleScroll: { padding: 24, paddingBottom: 40 },
+  idleKicker: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+  idleTitle: { fontSize: 28, fontWeight: '800', marginTop: 6, letterSpacing: -0.3 },
+  idleSub: { fontSize: 15, lineHeight: 22, marginTop: 8 },
+  idleHero: {
+    marginTop: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+    flexDirection: 'row',
   },
-  banner: {
+  idleHeroAccent: { width: 4 },
+  idleHeroInner: { flex: 1, padding: 18, gap: 12 },
+  idlePrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  idlePrimaryText: { fontWeight: '800', fontSize: 17 },
+  idleSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  idleLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    paddingVertical: 8,
+  },
+
+  bannerWrap: { flexDirection: 'row', borderBottomWidth: 1 },
+  bannerAccent: { width: 4 },
+  bannerInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
   },
-  timer: { fontSize: 20, fontWeight: '700' },
-  endBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
-  routineStrip: {
+  bannerLeft: { flex: 1, minWidth: 0 },
+  bannerLiveRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  bannerLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  timerRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 4 },
+  timerValue: { fontSize: 32, fontWeight: '800', letterSpacing: -1 },
+  timerUnit: { fontSize: 16, fontWeight: '600' },
+  saveRoutineRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  endBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    paddingLeft: 16,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+
+  routineStrip: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  routineLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase' },
-  chipRow: { gap: 8, paddingRight: 16 },
+  routineTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  routineLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  chipRow: { gap: 8, paddingRight: 8 },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 22,
     borderWidth: 1,
-    maxWidth: 160,
+    maxWidth: 168,
   },
-  secondaryBtn: {
+
+  exercisePickCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 12,
+  },
+  exercisePickIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exercisePickKicker: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
+  exercisePickName: { fontSize: 17, fontWeight: '700', marginTop: 2 },
+
+  logPanel: {
     marginHorizontal: 16,
     marginTop: 12,
     padding: 14,
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    alignItems: 'center',
   },
-  inputRow: {
+  logPanelTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  inputCol: { flex: 1, minWidth: 0 },
+  inputLabel: { fontSize: 11, fontWeight: '600', marginBottom: 6, textTransform: 'uppercase' },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  addBtnCol: { justifyContent: 'flex-end' },
+  addSetBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    marginTop: 12,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
-  input: {
-    flex: 1,
-    borderWidth: 1,
+  primaryBtnText: { fontWeight: '800', fontSize: 16 },
+  primaryBtn: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+
+  sessionLogHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginLeft: 20,
+    marginTop: 20,
+  },
+  sessionCard: { borderRadius: 14, padding: 14, borderWidth: 1 },
+  sessionCardHead: { flexDirection: 'row', alignItems: 'center' },
+  exName: { fontWeight: '700', fontSize: 17 },
+  setDivider: { height: StyleSheet.hairlineWidth, marginVertical: 10 },
+  setRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  setBadge: {
+    minWidth: 26,
+    height: 26,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  addSetBtn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
-  primaryBtn: { paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
-  primaryBtnText: { color: '#0f1419', fontWeight: '700' },
-  card: { borderRadius: 12, padding: 12, borderWidth: 1 },
-  exName: { fontWeight: '600', marginBottom: 6 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'flex-end',
-  },
+  emptySession: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24 },
+
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end' },
   modalCard: {
-    maxHeight: '70%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    maxHeight: '72%',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     padding: 20,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+  },
+  modalHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  modalTitle: { fontSize: 20, fontWeight: '800' },
+  modalCancelBtn: {
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  customExerciseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    marginBottom: 8,
+  },
+  pickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   saveCard: {
-    marginHorizontal: 24,
-    borderRadius: 16,
+    marginHorizontal: 20,
+    borderRadius: 18,
     padding: 20,
     borderWidth: 1,
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  pickRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   rpeRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
   rpeChip: {
     paddingHorizontal: 14,
