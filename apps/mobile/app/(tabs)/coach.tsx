@@ -1,12 +1,13 @@
 import { useColors } from '@/src/hooks/useColors';
+import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { buildCoachContextSummary } from '@/src/lib/coachContext';
 import { getSupabase } from '@/src/lib/supabase';
 import { Link } from 'expo-router';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -22,6 +23,8 @@ type Msg = { role: 'user' | 'assistant'; text: string };
 export default function CoachScreen() {
   const c = useColors();
   const { user, backendReady } = useAuth();
+  const { unit } = useWeightUnit();
+  const showAlert = useAppAlert();
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: 'assistant',
@@ -43,7 +46,7 @@ export default function CoachScreen() {
     const text = input.trim();
     if (!text || sending) return;
     if (!user || !backendReady) {
-      Alert.alert('Sign in', 'Coach uses your cloud session. Open Sign in from the person menu.');
+      showAlert('Sign in', 'Coach uses your cloud session. Open Sign in from the person menu.');
       return;
     }
     const sb = getSupabase();
@@ -55,7 +58,7 @@ export default function CoachScreen() {
     setMessages(threaded);
     setSending(true);
 
-    const contextSummary = buildCoachContextSummary(8);
+    const contextSummary = buildCoachContextSummary(8, unit);
     const apiMessages = threaded.map((m) => ({
       role: m.role,
       content: m.text,
@@ -68,7 +71,7 @@ export default function CoachScreen() {
     setSending(false);
 
     if (error) {
-      Alert.alert(
+      showAlert(
         'Coach',
         error.message ??
           'Could not reach the coach. Deploy the ai-coach Edge Function and set OPENAI_API_KEY in Supabase (see README).'
@@ -78,13 +81,13 @@ export default function CoachScreen() {
     const reply = (data as { reply?: string; error?: string })?.reply;
     const err = (data as { error?: string })?.error;
     if (err) {
-      Alert.alert('Coach', err);
+      showAlert('Coach', err);
       return;
     }
     if (reply) {
       setMessages((m) => [...m, { role: 'assistant', text: reply }]);
     } else {
-      Alert.alert('Coach', 'No reply from the server. Check that the ai-coach function is deployed.');
+      showAlert('Coach', 'No reply from the server. Check that the ai-coach function is deployed.');
     }
   };
 

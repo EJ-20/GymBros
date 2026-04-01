@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" role="img" aria-label="GymBros">
+  <defs>
+    <linearGradient id="plate" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#bbf7d0" />
+      <stop offset="45%" stop-color="#4ade80" />
+      <stop offset="100%" stop-color="#15803d" />
+    </linearGradient>
+    <linearGradient id="plateShine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35" />
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="barMetal" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#cbd5e1" />
+      <stop offset="40%" stop-color="#64748b" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="b" />
+      <feMerge>
+        <feMergeNode in="b" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Left weight stack -->
+  <g filter="url(#softGlow)">
+    <rect x="2" y="11" width="13" height="26" rx="4" fill="url(#plate)" />
+    <rect x="4" y="13" width="4" height="22" rx="1.5" fill="url(#plateShine)" />
+    <rect x="3" y="12" width="11" height="24" rx="3.5" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1" />
+  </g>
+  <!-- Bar -->
+  <rect x="13" y="20.5" width="22" height="10" rx="5" fill="url(#barMetal)" />
+  <rect x="15" y="22" width="18" height="3.5" rx="1.5" fill="#ffffff" fill-opacity="0.22" />
+  <rect x="19" y="21.5" width="10" height="8" rx="3" fill="#0f172a" fill-opacity="0.35" />
+  <!-- Right weight stack -->
+  <g filter="url(#softGlow)">
+    <rect x="33" y="11" width="13" height="26" rx="4" fill="url(#plate)" />
+    <rect x="35" y="13" width="4" height="22" rx="1.5" fill="url(#plateShine)" />
+    <rect x="34" y="12" width="11" height="24" rx="3.5" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1" />
+  </g>
+</svg>

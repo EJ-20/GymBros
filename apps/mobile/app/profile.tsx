@@ -1,14 +1,20 @@
 import { useColors } from '@/src/hooks/useColors';
+import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
-import { pullProfile, syncAll, updateProfilePrivacy } from '@/src/sync/syncEngine';
+import {
+  pullProfile,
+  syncAll,
+  updateProfilePrivacy,
+  type BenchmarkSex,
+} from '@/src/sync/syncEngine';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { Link } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +24,19 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import {
+  formatWeightFromKgForInput,
+  parseWeightInputToKg,
+  weightUnitLabel,
+  type WeightUnit,
+} from '@/src/lib/weightUnits';
+
+const BENCHMARK_SEX_OPTIONS: { value: BenchmarkSex; label: string }[] = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'non_binary', label: 'Non-binary' },
+  { value: 'prefer_not', label: 'Prefer not to say' },
+];
 
 function formatPulledSummary(p: {
   exercises: number;
@@ -37,12 +56,23 @@ function formatPulledSummary(p: {
 export default function ProfileScreen() {
   const c = useColors();
   const { user, loading, signOut, backendReady } = useAuth();
+  const { unit: weightUnit, setWeightUnit } = useWeightUnit();
+  const showAlert = useAppAlert();
+  const weightUnitRef = useRef(weightUnit);
+  weightUnitRef.current = weightUnit;
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [shareVol, setShareVol] = useState(false);
   const [shareSessions, setShareSessions] = useState(false);
   const [shareBest, setShareBest] = useState(false);
+  const [bodyweightInput, setBodyweightInput] = useState('');
+  const [birthYearInput, setBirthYearInput] = useState('');
+  const [countryInput, setCountryInput] = useState('');
+  const [shareGlobalBench, setShareGlobalBench] = useState(false);
+  const [sex, setSex] = useState<BenchmarkSex | null>(null);
+  const [heightInput, setHeightInput] = useState('');
+  const [yearsTrainingInput, setYearsTrainingInput] = useState('');
 
   const loadPrivacy = useCallback(async () => {
     if (!user) return;
@@ -52,6 +82,17 @@ export default function ProfileScreen() {
       setShareVol(p.shareWeeklyVolume);
       setShareSessions(p.shareSessionCount);
       setShareBest(p.shareBestLifts);
+      setBodyweightInput(
+        p.bodyweightKg != null
+          ? formatWeightFromKgForInput(p.bodyweightKg, weightUnitRef.current)
+          : ''
+      );
+      setBirthYearInput(p.birthYear != null ? String(p.birthYear) : '');
+      setCountryInput(p.countryCode ?? '');
+      setShareGlobalBench(p.shareGlobalBenchmarks);
+      setSex(p.sex);
+      setHeightInput(p.heightCm != null ? String(p.heightCm) : '');
+      setYearsTrainingInput(p.yearsTraining != null ? String(p.yearsTraining) : '');
     }
   }, [user]);
 
@@ -64,20 +105,79 @@ export default function ProfileScreen() {
   const copyId = async () => {
     if (!user?.id) return;
     await Clipboard.setStringAsync(user.id);
-    Alert.alert('Copied', 'User id copied. Share with friends to connect.');
+    showAlert('Copied', 'User id copied. Share with friends to connect.');
+  };
+
+  const parseProfilePayload = () => {
+    const bodyweightKg =
+      bodyweightInput.trim() === ''
+        ? null
+        : (() => {
+            const k = parseWeightInputToKg(bodyweightInput, weightUnit);
+            return k != null && k > 0 ? k : null;
+          })();
+    const by = parseInt(birthYearInput.trim(), 10);
+    const birthYear =
+      birthYearInput.trim() === '' || Number.isNaN(by) ? null : by;
+    if (birthYear != null && (by < 1930 || by > new Date().getFullYear() - 12)) {
+      return { error: 'Enter a realistic birth year (age 12+).' as const };
+    }
+    const cc = countryInput.trim().toUpperCase();
+    if (cc.length > 0 && cc.length !== 2) {
+      return { error: 'Country must be a 2-letter code (e.g. US) or empty.' as const };
+    }
+    const h = parseFloat(heightInput.replace(',', '.'));
+    const heightCm =
+      heightInput.trim() === '' || Number.isNaN(h)
+        ? null
+        : h;
+    if (heightCm != null && (heightCm < 100 || heightCm > 250)) {
+      return { error: 'Height should be 100–250 cm or left blank.' as const };
+    }
+    const yt = parseInt(yearsTrainingInput.trim(), 10);
+    const yearsTraining =
+      yearsTrainingInput.trim() === '' || Number.isNaN(yt) ? null : yt;
+    if (yearsTraining != null && (yearsTraining < 0 || yearsTraining > 80)) {
+      return { error: 'Years of training should be 0–80 or left blank.' as const };
+    }
+    if (shareGlobalBench && !sex) {
+      return { error: 'Choose a benchmark group (sex / gender category) to use global rankings.' as const };
+    }
+    return {
+      error: null as null,
+      bodyweightKg,
+      birthYear,
+      countryCode: cc.length === 2 ? cc : null,
+      heightCm,
+      yearsTraining,
+      sex,
+    };
   };
 
   const savePrivacy = async () => {
+    const parsed = parseProfilePayload();
+    if (parsed.error) {
+      showAlert('Profile', parsed.error);
+      return;
+    }
     setSavingPrivacy(true);
     const { error } = await updateProfilePrivacy({
       displayName: displayName.trim() || undefined,
       shareWeeklyVolume: shareVol,
       shareSessionCount: shareSessions,
       shareBestLifts: shareBest,
+      bodyweightKg: parsed.bodyweightKg,
+      birthYear: parsed.birthYear,
+      countryCode: parsed.countryCode,
+      shareGlobalBenchmarks: shareGlobalBench,
+      sex: parsed.sex,
+      heightCm: parsed.heightCm,
+      yearsTraining: parsed.yearsTraining,
+      weightUnit,
     });
     setSavingPrivacy(false);
-    if (error) Alert.alert('Profile', friendlyBackendError(error));
-    else Alert.alert('Saved', 'Privacy settings updated.');
+    if (error) showAlert('Profile', friendlyBackendError(error));
+    else showAlert('Saved', 'Profile updated.');
   };
 
   const runSync = async () => {
@@ -85,10 +185,19 @@ export default function ProfileScreen() {
     setSyncing(true);
     const { error, pulled } = await syncAll(user.id);
     setSyncing(false);
-    if (error) Alert.alert('Sync', friendlyBackendError(error));
+    if (error) showAlert('Sync', friendlyBackendError(error));
     else if (pulled) {
-      Alert.alert('Sync complete', `Local changes uploaded.\n\n${formatPulledSummary(pulled)}`);
-    } else Alert.alert('Sync complete', 'Local changes uploaded. Nothing new from the cloud.');
+      showAlert('Sync complete', `Local changes uploaded.\n\n${formatPulledSummary(pulled)}`);
+    } else showAlert('Sync complete', 'Local changes uploaded. Nothing new from the cloud.');
+  };
+
+  const onSelectWeightUnit = async (next: WeightUnit) => {
+    if (next === weightUnit) return;
+    if (bodyweightInput.trim()) {
+      const kg = parseWeightInputToKg(bodyweightInput, weightUnit);
+      if (kg != null) setBodyweightInput(formatWeightFromKgForInput(kg, next));
+    }
+    await setWeightUnit(next);
   };
 
   if (loading) {
@@ -113,7 +222,7 @@ export default function ProfileScreen() {
         <Text style={[styles.title, { color: c.text }]}>{user ? 'Profile & sync' : 'Account'}</Text>
         <Text style={[styles.sub, { color: c.textMuted }]}>
           {user
-            ? 'Cloud backup, friend compare privacy, and session sync.'
+            ? 'Cloud backup, friend compare, optional global rankings, and sync.'
             : 'Train locally, or sign in to sync and use Compare & Coach.'}
         </Text>
       </View>
@@ -132,6 +241,43 @@ export default function ProfileScreen() {
           </View>
         </View>
       ) : null}
+
+      <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Units</Text>
+      <View style={[styles.accentCard, { backgroundColor: c.card, borderColor: c.border }]}>
+        <View style={[styles.cardAccent, { backgroundColor: c.tint }]} />
+        <View style={styles.cardInner}>
+          <Text style={{ color: c.text, fontWeight: '700', marginBottom: 6 }}>Weight &amp; volume</Text>
+          <Text style={[styles.privacyIntroText, { color: c.textMuted, marginBottom: 12 }]}>
+            Use kg or lb in Workout, Today, History, and Compare. Everything is saved as kg in the cloud; changing
+            units converts what you see and your body-weight field here.
+          </Text>
+          <View style={styles.sexChips}>
+            {(['kg', 'lbs'] as const).map((u) => (
+              <Pressable
+                key={u}
+                onPress={() => void onSelectWeightUnit(u)}
+                style={[
+                  styles.sexChip,
+                  {
+                    backgroundColor: weightUnit === u ? c.tint : c.background,
+                    borderColor: weightUnit === u ? c.tint : c.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: weightUnit === u ? c.onTintLight : c.text,
+                    fontWeight: '800',
+                    fontSize: 14,
+                  }}
+                >
+                  {u === 'kg' ? 'Kilograms (kg)' : 'Pounds (lb)'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </View>
 
       {user ? (
         <>
@@ -209,6 +355,142 @@ export default function ProfileScreen() {
                 value={shareBest}
                 onValueChange={setShareBest}
               />
+            </View>
+          </View>
+
+          <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Benchmarks · global compare</Text>
+          <View style={[styles.accentCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={[styles.cardAccent, { backgroundColor: c.tint }]} />
+            <View style={styles.cardInner}>
+              <View style={styles.privacyIntro}>
+                <Ionicons name="earth-outline" size={22} color={c.tint} />
+                <Text style={[styles.privacyIntroText, { color: c.textMuted }]}>
+                  Compare to anonymous cohorts with the same benchmark group (sex category), similar age and weight,
+                  and—if you add them—similar height and training history. No public leaderboards with your name.
+                  Regional stats use your country code when you add one.
+                </Text>
+              </View>
+
+              <Text style={[styles.fieldLabel, { color: c.textMuted }]}>Benchmark group</Text>
+              <Text style={[styles.hintBelowLabel, { color: c.textMuted }]}>
+                Used only to match you to similar athletes (male / female / non-binary / prefer not to say).
+              </Text>
+              <View style={styles.sexChips}>
+                {BENCHMARK_SEX_OPTIONS.map((opt) => {
+                  const on = sex === opt.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => setSex(opt.value)}
+                      style={[
+                        styles.sexChip,
+                        {
+                          backgroundColor: on ? c.tint : c.background,
+                          borderColor: on ? c.tint : c.border,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: on ? c.onTintLight : c.text,
+                          fontWeight: '700',
+                          fontSize: 13,
+                        }}
+                      >
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {sex ? (
+                <Pressable onPress={() => setSex(null)} hitSlop={8}>
+                  <Text style={{ color: c.tint, fontSize: 13, fontWeight: '600', marginTop: 6 }}>
+                    Clear selection
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 16 }]}>
+                Body weight ({weightUnitLabel(weightUnit)})
+              </Text>
+              <TextInput
+                value={bodyweightInput}
+                onChangeText={setBodyweightInput}
+                placeholder="e.g. 78.5"
+                placeholderTextColor={c.textMuted}
+                keyboardType="decimal-pad"
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+              />
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 14 }]}>Birth year</Text>
+              <TextInput
+                value={birthYearInput}
+                onChangeText={setBirthYearInput}
+                placeholder="e.g. 1995"
+                placeholderTextColor={c.textMuted}
+                keyboardType="number-pad"
+                maxLength={4}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+              />
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 14 }]}>Height (cm, optional)</Text>
+              <TextInput
+                value={heightInput}
+                onChangeText={setHeightInput}
+                placeholder="Tighter cohort when set (±8%)"
+                placeholderTextColor={c.textMuted}
+                keyboardType="decimal-pad"
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+              />
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 14 }]}>
+                Years training (optional)
+              </Text>
+              <TextInput
+                value={yearsTrainingInput}
+                onChangeText={setYearsTrainingInput}
+                placeholder="Structured lifting / running, whole years"
+                placeholderTextColor={c.textMuted}
+                keyboardType="number-pad"
+                maxLength={2}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+              />
+              <Text style={[styles.fieldLabel, { color: c.textMuted, marginTop: 14 }]}>Country (optional)</Text>
+              <TextInput
+                value={countryInput}
+                onChangeText={(t) => setCountryInput(t.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))}
+                placeholder="ISO code, e.g. US"
+                placeholderTextColor={c.textMuted}
+                autoCapitalize="characters"
+                maxLength={2}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+              />
+
+              <PrivacyRow
+                c={c}
+                icon="stats-chart-outline"
+                label="Join global & regional benchmarks"
+                value={shareGlobalBench}
+                onValueChange={setShareGlobalBench}
+              />
+              <Text style={[styles.signOutHint, { color: c.textMuted, marginTop: 0, marginBottom: 0 }]}>
+                Weekly load is volume vs body weight; running uses timed sets on cardio exercises like Run / treadmill
+                (last 7 days). Height and years training narrow the cohort when both you and others fill them in. You
+                need enough opted-in people in your group to see percentiles—check Compare after sync.
+              </Text>
 
               <Pressable
                 style={[
@@ -223,7 +505,7 @@ export default function ProfileScreen() {
                 ) : (
                   <>
                     <Ionicons name="checkmark-circle-outline" size={22} color={c.onTintLight} />
-                    <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save privacy</Text>
+                    <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save profile</Text>
                   </>
                 )}
               </Pressable>
@@ -408,6 +690,14 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginBottom: 6,
+  },
+  hintBelowLabel: { fontSize: 12, lineHeight: 17, marginTop: -2, marginBottom: 10 },
+  sexChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  sexChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
   },
   input: {
     borderWidth: 1,

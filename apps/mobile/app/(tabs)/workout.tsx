@@ -1,14 +1,20 @@
 import { bestSetFromHistory, isPrCandidate } from '@gymbros/shared';
+import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import { openWorkoutDeepLink } from '@/src/watch/WatchBridge';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
 import {
-  Alert,
+  formatWeightFromKgForInput,
+  parseWeightInputToKg,
+  weightUnitLabel,
+} from '@/src/lib/weightUnits';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
   FlatList,
   Modal,
   Pressable,
@@ -23,6 +29,9 @@ import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros
 export default function WorkoutScreen() {
   const c = useColors();
   const { localDataVersion } = useAuth();
+  const { unit } = useWeightUnit();
+  const showAlert = useAppAlert();
+  const prevUnitRef = useRef(unit);
   const router = useRouter();
   const [session, setSession] = useState<WorkoutSession | null>(null);
   const [setsByExercise, setSetsByExercise] = useState<Record<string, SetLog[]>>({});
@@ -36,7 +45,7 @@ export default function WorkoutScreen() {
   const [endRpe, setEndRpe] = useState<number | null>(null);
   const [customName, setCustomName] = useState('');
   const [reps, setReps] = useState('8');
-  const [weight, setWeight] = useState('20');
+  const [weight, setWeight] = useState('');
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   /** When set, shows chips to jump through a saved routine (in-memory for this session). */
   const [routineExerciseIds, setRoutineExerciseIds] = useState<string[] | null>(null);
@@ -63,12 +72,26 @@ export default function WorkoutScreen() {
 
   useFocusEffect(useCallback(() => refresh(), [refresh, localDataVersion]));
 
+  useEffect(() => {
+    if (prevUnitRef.current === unit) return;
+    const prev = prevUnitRef.current;
+    prevUnitRef.current = unit;
+    setWeight((w) => {
+      if (w.trim() === '') return unit === 'kg' ? '20' : '45';
+      const kg = parseWeightInputToKg(w, prev);
+      if (kg == null) return w;
+      return formatWeightFromKgForInput(kg, unit);
+    });
+  }, [unit]);
+
   const prefillFromHistory = (exerciseId: string, sessionIdForPrior: string) => {
     const prior = repo.listSetsForExerciseBeforeSession(exerciseId, sessionIdForPrior);
     const best = bestSetFromHistory(prior);
     if (best) {
       setReps(String(best.reps));
-      setWeight(String(best.weightKg));
+      setWeight(formatWeightFromKgForInput(best.weightKg, unit));
+    } else {
+      setWeight(unit === 'kg' ? '20' : '45');
     }
   };
 
@@ -100,7 +123,7 @@ export default function WorkoutScreen() {
   const startFromTemplate = (t: WorkoutTemplate) => {
     setPickRoutineOpen(false);
     if (repo.getActiveSession()) {
-      Alert.alert('Workout in progress', 'End your current session first.');
+      showAlert('Workout in progress', 'End your current session first.');
       return;
     }
     const s = repo.startSession('phone');
@@ -138,7 +161,7 @@ export default function WorkoutScreen() {
     if (!session) return;
     const ids = repo.orderedExerciseIdsFromSession(session.id);
     if (ids.length === 0) {
-      Alert.alert('Nothing to save', 'Log at least one set first.');
+      showAlert('Nothing to save', 'Log at least one set first.');
       return;
     }
     setSaveRoutineName('');
@@ -151,7 +174,7 @@ export default function WorkoutScreen() {
     repo.createTemplate(n, repo.orderedExerciseIdsFromSession(session.id));
     setSaveRoutineName('');
     setSaveRoutineOpen(false);
-    Alert.alert('Saved', 'Open Routines in the header or Workout tab to edit it.');
+    showAlert('Saved', 'Open Routines in the header or Workout tab to edit it.');
   };
 
   const addCustom = () => {
@@ -166,24 +189,27 @@ export default function WorkoutScreen() {
 
   const addSet = () => {
     if (!session || !selectedExerciseId) {
-      Alert.alert('Pick an exercise', 'Choose an exercise before adding a set.');
+      showAlert('Pick an exercise', 'Choose an exercise before adding a set.');
       return;
     }
     const r = parseInt(reps, 10);
-    const w = parseFloat(weight);
-    if (!Number.isFinite(r) || r < 0 || !Number.isFinite(w) || w < 0) {
-      Alert.alert('Invalid numbers', 'Enter reps (0 or more) and weight in kg (0 for bodyweight).');
+    const wKg = parseWeightInputToKg(weight, unit);
+    if (!Number.isFinite(r) || r < 0 || wKg === null) {
+      showAlert(
+        'Invalid numbers',
+        `Enter reps (0 or more) and weight in ${weightUnitLabel(unit)} (0 for bodyweight).`
+      );
       return;
     }
     const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
     const best = bestSetFromHistory(prior);
     const newSet = repo.addSet(session.id, selectedExerciseId, {
       reps: r,
-      weightKg: w,
+      weightKg: wKg,
     });
     const pr = isPrCandidate(newSet, best);
     refresh();
-    if (pr) Alert.alert('PR', 'Nice — estimated 1RM up on this exercise.');
+    if (pr) showAlert('PR', 'Nice — estimated 1RM up on this exercise.');
   };
 
   const exerciseRows = Object.keys(setsByExercise).map((id) => ({
@@ -388,7 +414,9 @@ export default function WorkoutScreen() {
             />
           </View>
           <View style={styles.inputCol}>
-            <Text style={[styles.inputLabel, { color: c.textMuted }]}>Weight (kg)</Text>
+            <Text style={[styles.inputLabel, { color: c.textMuted }]}>
+              Weight ({weightUnitLabel(unit)})
+            </Text>
             <TextInput
               style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
               keyboardType="decimal-pad"
@@ -431,7 +459,10 @@ export default function WorkoutScreen() {
                   <Text style={{ color: c.tint, fontWeight: '800', fontSize: 12 }}>{s.orderIndex + 1}</Text>
                 </View>
                 <Text style={{ color: c.text, fontWeight: '600', flex: 1 }}>
-                  {s.reps} × {s.weightKg} kg
+                  {s.reps} ×{' '}
+                  {s.weightKg != null
+                    ? `${formatWeightFromKgForInput(s.weightKg, unit)} ${weightUnitLabel(unit)}`
+                    : '—'}
                 </Text>
                 {s.rpe != null ? (
                   <Text style={{ color: c.textMuted, fontSize: 13 }}>RPE {s.rpe}</Text>

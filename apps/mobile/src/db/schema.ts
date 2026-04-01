@@ -100,6 +100,7 @@ export function runInitialSetup(db: DbSync): void {
     seedDefaultExercises(db);
     db.runSync("INSERT INTO sync_meta (key, value) VALUES ('seeded_exercises', '1')");
   }
+  ensureDefaultCardioExercise(db);
 }
 
 function seedDefaultExercises(d: DbSync): void {
@@ -115,6 +116,7 @@ function seedDefaultExercises(d: DbSync): void {
     ['Romanian deadlift', 'legs', 'barbell'],
     ['Lat pulldown', 'back', 'cable'],
     ['Plank', 'core', 'bodyweight'],
+    ['Run / treadmill', 'cardio', 'machine'],
   ];
   for (const [name, mg, eq] of defaults) {
     const id = randomUUID();
@@ -124,4 +126,27 @@ function seedDefaultExercises(d: DbSync): void {
       [id, name, mg, eq, now]
     );
   }
+}
+
+/** Adds default cardio exercise for DBs created before it existed in the seed list. */
+function ensureDefaultCardioExercise(d: DbSync): void {
+  const done = d.getFirstSync<{ value: string }>(
+    "SELECT value FROM sync_meta WHERE key = 'seeded_default_run_v1'"
+  );
+  if (done) return;
+  const exists = d.getFirstSync<{ id: string }>(
+    "SELECT id FROM exercises WHERE name = 'Run / treadmill' LIMIT 1"
+  );
+  if (!exists) {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    d.runSync(
+      `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, dirty)
+       VALUES (?, ?, 'cardio', 'machine', 0, ?, 1)`,
+      [id, 'Run / treadmill', now]
+    );
+  }
+  d.runSync(
+    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('seeded_default_run_v1', '1')"
+  );
 }

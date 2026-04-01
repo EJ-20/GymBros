@@ -1,12 +1,15 @@
 import { useColors } from '@/src/hooks/useColors';
+import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
+import { volumeKgToDisplayNumber, volumeUnitSuffix } from '@/src/lib/weightUnits';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
 import * as repo from '@/src/db/workoutRepo';
 import { deleteSessionFromCloud } from '@/src/sync/syncEngine';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WorkoutSession } from '@gymbros/shared';
 
 function formatSessionDateParts(iso: string): { date: string; time: string } {
@@ -31,6 +34,8 @@ function formatSessionDateParts(iso: string): { date: string; time: string } {
 export default function HistoryScreen() {
   const c = useColors();
   const { user, backendReady, localDataVersion } = useAuth();
+  const { unit } = useWeightUnit();
+  const showAlert = useAppAlert();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
 
   const reload = useCallback(() => {
@@ -39,13 +44,14 @@ export default function HistoryScreen() {
 
   useFocusEffect(useCallback(() => reload(), [reload, localDataVersion]));
 
-  const totalVolume = useMemo(
+  const totalVolumeKg = useMemo(
     () => sessions.reduce((sum, s) => sum + repo.sessionVolumeKg(s.id), 0),
     [sessions]
   );
+  const totalVolumeDisplay = volumeKgToDisplayNumber(totalVolumeKg, unit);
 
   const confirmDelete = (item: WorkoutSession) => {
-    Alert.alert(
+    showAlert(
       'Delete workout',
       'Remove this session and all its sets from this device' +
         (user && backendReady ? ' and from your cloud backup.' : '?'),
@@ -58,7 +64,7 @@ export default function HistoryScreen() {
             if (user && backendReady) {
               const { error, attempted } = await deleteSessionFromCloud(item.id);
               if (error && attempted) {
-                Alert.alert(
+                showAlert(
                   'Cloud delete',
                   `${friendlyBackendError(error)}\n\nThe workout will still be removed on this device.`
                 );
@@ -96,11 +102,13 @@ export default function HistoryScreen() {
               <View style={styles.summaryItem}>
                 <Ionicons name="bar-chart-outline" size={18} color={c.tint} />
                 <Text style={[styles.summaryValue, { color: c.text }]}>
-                  {totalVolume >= 1000
-                    ? `${(totalVolume / 1000).toFixed(1)}k`
-                    : Math.round(totalVolume)}
+                  {totalVolumeDisplay >= 1000
+                    ? `${(totalVolumeDisplay / 1000).toFixed(1)}k`
+                    : totalVolumeDisplay}
                 </Text>
-                <Text style={[styles.summaryLabel, { color: c.textMuted }]}>kg·reps total</Text>
+                <Text style={[styles.summaryLabel, { color: c.textMuted }]}>
+                  {volumeUnitSuffix(unit)} total
+                </Text>
               </View>
             </View>
           ) : null}
@@ -122,7 +130,7 @@ export default function HistoryScreen() {
         </View>
       }
       renderItem={({ item, index }) => {
-        const vol = Math.round(repo.sessionVolumeKg(item.id));
+        const volDisplay = volumeKgToDisplayNumber(repo.sessionVolumeKg(item.id), unit);
         const mins = item.endedAt
           ? Math.round(
               (new Date(item.endedAt).getTime() - new Date(item.startedAt).getTime()) / 60000
@@ -162,7 +170,7 @@ export default function HistoryScreen() {
                 <View style={[styles.metaChip, { backgroundColor: c.background }]}>
                   <Ionicons name="barbell-outline" size={16} color={c.tint} />
                   <Text style={[styles.metaText, { color: c.text }]}>
-                    {vol.toLocaleString()} kg·reps
+                    {volDisplay.toLocaleString()} {volumeUnitSuffix(unit)}
                   </Text>
                 </View>
                 {item.perceivedExertion != null ? (

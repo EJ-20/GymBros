@@ -1,3 +1,4 @@
+import type { WeightUnit } from '@/src/lib/weightUnits';
 import { getSupabase, supabaseConfigured } from '@/src/lib/supabase';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as repo from '@/src/db/workoutRepo';
@@ -292,11 +293,26 @@ export async function deleteSessionFromCloud(
   return { error: null, attempted: true };
 }
 
+export type BenchmarkSex = 'male' | 'female' | 'non_binary' | 'prefer_not';
+
+function parseBenchmarkSex(v: unknown): BenchmarkSex | null {
+  if (v !== 'male' && v !== 'female' && v !== 'non_binary' && v !== 'prefer_not') return null;
+  return v;
+}
+
 export async function pullProfile(): Promise<{
   displayName: string | null;
   shareWeeklyVolume: boolean;
   shareSessionCount: boolean;
   shareBestLifts: boolean;
+  bodyweightKg: number | null;
+  birthYear: number | null;
+  countryCode: string | null;
+  shareGlobalBenchmarks: boolean;
+  sex: BenchmarkSex | null;
+  heightCm: number | null;
+  yearsTraining: number | null;
+  weightUnit: WeightUnit;
 } | null> {
   const sb = getSupabase();
   if (!sb) return null;
@@ -307,6 +323,16 @@ export async function pullProfile(): Promise<{
     shareWeeklyVolume: Boolean(data.share_weekly_volume),
     shareSessionCount: Boolean(data.share_session_count),
     shareBestLifts: Boolean(data.share_best_lifts),
+    bodyweightKg: data.bodyweight_kg != null ? Number(data.bodyweight_kg) : null,
+    birthYear: data.birth_year != null ? parseInt(String(data.birth_year), 10) : null,
+    countryCode:
+      typeof data.country_code === 'string' && data.country_code.length
+        ? data.country_code.trim().toUpperCase()
+        : null,
+    shareGlobalBenchmarks: Boolean(data.share_global_benchmarks),
+    sex: parseBenchmarkSex(data.sex),
+    heightCm: data.height_cm != null ? Number(data.height_cm) : null,
+    yearsTraining: data.years_training != null ? parseInt(String(data.years_training), 10) : null,
   };
 }
 
@@ -315,18 +341,51 @@ export async function updateProfilePrivacy(input: {
   shareWeeklyVolume: boolean;
   shareSessionCount: boolean;
   shareBestLifts: boolean;
+  bodyweightKg?: number | null;
+  birthYear?: number | null;
+  countryCode?: string | null;
+  shareGlobalBenchmarks?: boolean;
+  sex?: BenchmarkSex | null;
+  heightCm?: number | null;
+  yearsTraining?: number | null;
+  weightUnit?: WeightUnit;
 }): Promise<{ error: string | null }> {
   const sb = getSupabase();
   if (!sb) return { error: 'Not configured' };
   const { data: u } = await sb.auth.getUser();
   if (!u.user) return { error: 'Not signed in' };
+  const ccRaw = input.countryCode?.trim().toUpperCase() ?? null;
+  const country_code = ccRaw && ccRaw.length === 2 ? ccRaw : null;
   const { error } = await sb.from('profiles').upsert({
     id: u.user.id,
     display_name: input.displayName ?? null,
     share_weekly_volume: input.shareWeeklyVolume,
     share_session_count: input.shareSessionCount,
     share_best_lifts: input.shareBestLifts,
+    bodyweight_kg: input.bodyweightKg ?? null,
+    birth_year: input.birthYear ?? null,
+    country_code,
+    share_global_benchmarks: input.shareGlobalBenchmarks ?? false,
+    sex: input.sex ?? null,
+    height_cm: input.heightCm ?? null,
+    years_training: input.yearsTraining ?? null,
+    weight_unit: input.weightUnit ?? 'kg',
     updated_at: new Date().toISOString(),
   });
+  return { error: error?.message ?? null };
+}
+
+export async function patchProfileWeightUnit(unit: WeightUnit): Promise<{ error: string | null }> {
+  const sb = getSupabase();
+  if (!sb) return { error: 'Not configured' };
+  const { data: u } = await sb.auth.getUser();
+  if (!u.user) return { error: 'Not signed in' };
+  const { error } = await sb
+    .from('profiles')
+    .update({
+      weight_unit: unit,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', u.user.id);
   return { error: error?.message ?? null };
 }

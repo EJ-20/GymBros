@@ -4,10 +4,20 @@ Mobile-first gym tracker: local workout logging, Supabase sync, friends-only sta
 
 ## Structure
 
+- [apps/web](apps/web) — Marketing / landing site (Vite static HTML + CSS)
 - [apps/mobile](apps/mobile) — Expo (React Native) app
 - [packages/shared](packages/shared) — Shared TypeScript types, Zod schemas, PR helpers
 - [supabase/migrations](supabase/migrations) — Postgres schema, RLS, `friend_compare_stats` RPC
 - [supabase/functions/ai-coach](supabase/functions/ai-coach) — Deno edge function calling OpenAI
+
+## Marketing site
+
+Landing page for the project (features, use cases, stack). From the repo root after `npm install`:
+
+```bash
+npm run web        # dev server (default http://localhost:5174)
+npm run web:build  # static output in apps/web/dist — deploy to any static host
+```
 
 ## Prerequisites
 
@@ -104,7 +114,7 @@ Optional: **Authentication** → **Rate limits** — relax or disable for dev if
    supabase db push
    ```
 
-   **Or without the CLI:** **SQL Editor** → run each file in [supabase/migrations](supabase/migrations) in filename order (e.g. `20250330000000_initial.sql`, then [20250330100000_workout_templates.sql](supabase/migrations/20250330100000_workout_templates.sql) for saved routines).
+   **Or without the CLI:** **SQL Editor** → run each file in [supabase/migrations](supabase/migrations) in filename order (e.g. `20250330000000_initial.sql`, then [20250330100000_workout_templates.sql](supabase/migrations/20250330100000_workout_templates.sql), then [20250330200000_global_benchmarks.sql](supabase/migrations/20250330200000_global_benchmarks.sql), then [20250330300000_benchmark_demographics.sql](supabase/migrations/20250330300000_benchmark_demographics.sql) for sex / height / training-year cohort fields, then [20250330400000_weight_unit.sql](supabase/migrations/20250330400000_weight_unit.sql) for `profiles.weight_unit` (kg vs lb display preference)).
 
 3. If tables already exist but the API still complains, wait a minute or in **Project Settings** → **API** use options to refresh/restart if your plan shows them; usually a fresh `db push` is enough.
 

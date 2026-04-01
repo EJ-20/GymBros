@@ -1,5 +1,6 @@
 import { getHomeDashboardStats } from '@/src/analytics/homeStats';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +9,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { HomeDashboardStats } from '@/src/analytics/homeStats';
+import { volumeKgToDisplayNumber, volumeUnitSuffix } from '@/src/lib/weightUnits';
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -57,6 +59,7 @@ function formatGymMinutes(totalMin: number): string {
 export default function TodayScreen() {
   const c = useColors();
   const { localDataVersion } = useAuth();
+  const { unit } = useWeightUnit();
   const [stats, setStats] = useState<HomeDashboardStats>(() => getHomeDashboardStats());
 
   useFocusEffect(
@@ -70,6 +73,11 @@ export default function TodayScreen() {
 
   const sessionDelta = deltaLabel(last7.sessions, prev7.sessions, 'session');
   const volumeDelta = pctVolumeDelta(last7.volumeKg, prev7.volumeKg);
+  const vol7Display = volumeKgToDisplayNumber(last7.volumeKg, unit);
+  const vol30Display = volumeKgToDisplayNumber(last30.volumeKg, unit);
+  const lastSessVolDisplay = lastSession
+    ? volumeKgToDisplayNumber(repo.sessionVolumeKg(lastSession.id), unit)
+    : 0;
 
   const lastDurationMin =
     lastSession?.endedAt != null
@@ -153,11 +161,11 @@ export default function TodayScreen() {
           icon="bar-chart-outline"
           label="Volume"
           value={
-            last7.volumeKg >= 1000
-              ? `${(last7.volumeKg / 1000).toFixed(1)}k`
-              : String(Math.round(last7.volumeKg))
+            vol7Display >= 1000
+              ? `${(vol7Display / 1000).toFixed(1)}k`
+              : String(vol7Display)
           }
-          sub="kg·reps"
+          sub={volumeUnitSuffix(unit)}
           hint={volumeDelta.text}
           hintUp={volumeDelta.up}
         />
@@ -190,9 +198,11 @@ export default function TodayScreen() {
           <View style={[styles.wideDivider, { backgroundColor: c.border }]} />
           <View style={styles.wideCol}>
             <Text style={[styles.wideValue, { color: c.text }]}>
-              {Math.round(last30.volumeKg).toLocaleString()}
+              {vol30Display.toLocaleString()}
             </Text>
-            <Text style={[styles.wideHint, { color: c.textMuted }]}>kg·reps volume</Text>
+            <Text style={[styles.wideHint, { color: c.textMuted }]}>
+              {volumeUnitSuffix(unit)} volume
+            </Text>
           </View>
           <View style={[styles.wideDivider, { backgroundColor: c.border }]} />
           <View style={styles.wideCol}>
@@ -219,7 +229,7 @@ export default function TodayScreen() {
             <Text style={{ color: c.textMuted, fontSize: 13 }}>{formatCompactDate(lastSession.startedAt)}</Text>
           </View>
           <Text style={[styles.lastVolume, { color: c.text }]}>
-            {Math.round(repo.sessionVolumeKg(lastSession.id)).toLocaleString()} kg·reps
+            {lastSessVolDisplay.toLocaleString()} {volumeUnitSuffix(unit)}
             {lastSession.perceivedExertion != null ? ` · RPE ${lastSession.perceivedExertion}` : ''}
           </Text>
           <Text style={{ color: c.textMuted, fontSize: 14 }}>

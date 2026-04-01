@@ -1,4 +1,5 @@
 import { useColors } from '@/src/hooks/useColors';
+import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +7,6 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -23,6 +23,7 @@ export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, loading, signIn, signUp, backendReady } = useAuth();
+  const showAlert = useAppAlert();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -36,36 +37,36 @@ export default function SignInScreen() {
   const finishSignIn = async () => {
     const e = email.trim();
     if (!e) {
-      Alert.alert('Sign in', 'Enter your email.');
+      showAlert('Sign in', 'Enter your email.');
       return;
     }
     setBusy(true);
     const { error } = await signIn(e, password);
     setBusy(false);
-    if (error) Alert.alert('Sign in', friendlyBackendError(error.message));
+    if (error) showAlert('Sign in', friendlyBackendError(error.message));
   };
 
   const finishSignUp = async () => {
     const e = email.trim();
     if (!e) {
-      Alert.alert('Sign up', 'Enter your email.');
+      showAlert('Sign up', 'Enter your email.');
       return;
     }
     if (password.length < 6) {
-      Alert.alert('Sign up', 'Password must be at least 6 characters.');
+      showAlert('Sign up', 'Password must be at least 6 characters.');
       return;
     }
     setBusy(true);
     const { error, session: newSession } = await signUp(e, password);
     setBusy(false);
     if (error) {
-      Alert.alert('Sign up', friendlyBackendError(error.message));
+      showAlert('Sign up', friendlyBackendError(error.message));
       return;
     }
     if (newSession) {
-      Alert.alert('Welcome', 'You are signed in.');
+      showAlert('Welcome', 'You are signed in.');
     } else {
-      Alert.alert(
+      showAlert(
         'Check your email',
         'Open the confirmation link from Supabase, then return here and sign in.\n\n' +
           'For local testing you can turn off “Confirm email” in the Supabase dashboard (see README).'

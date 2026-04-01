@@ -1,4 +1,6 @@
+import { AppAlertProvider } from '@/src/contexts/AppAlertContext';
 import { AuthProvider } from '@/src/contexts/AuthContext';
+import { WeightUnitProvider } from '@/src/contexts/WeightUnitContext';
 import { initDatabase } from '@/src/db/database';
 import { parseWatchIntent } from '@/src/watch/WatchBridge';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -59,6 +61,8 @@ export default function RootLayout() {
     <GestureRoot>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthProvider>
+          <WeightUnitProvider>
+          <AppAlertProvider>
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: true }} />
@@ -83,6 +87,8 @@ export default function RootLayout() {
               }}
             />
           </Stack>
+          </AppAlertProvider>
+          </WeightUnitProvider>
         </AuthProvider>
       </ThemeProvider>
     </GestureRoot>

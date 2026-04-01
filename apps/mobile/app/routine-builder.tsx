@@ -1,3 +1,4 @@
+import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
@@ -5,7 +6,6 @@ import type { Exercise } from '@gymbros/shared';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -18,6 +18,7 @@ import {
 export default function RoutineBuilderScreen() {
   const c = useColors();
   const { localDataVersion } = useAuth();
+  const showAlert = useAppAlert();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isEdit = Boolean(id);
@@ -34,13 +35,13 @@ export default function RoutineBuilderScreen() {
       setName(t.name);
       setExerciseIds([...t.exerciseIds]);
     } else {
-      Alert.alert(
+      showAlert(
         'Routine not found',
         'It may have been removed, or local data was cleared (for example after signing out).',
         [{ text: 'OK', onPress: () => router.back() }]
       );
     }
-  }, [id, router, localDataVersion]);
+  }, [id, router, localDataVersion, showAlert]);
 
   const addExercise = useCallback((ex: Exercise) => {
     setExerciseIds((prev) => [...prev, ex.id]);
@@ -63,11 +64,11 @@ export default function RoutineBuilderScreen() {
   const save = () => {
     const n = name.trim();
     if (!n) {
-      Alert.alert('Name required', 'Give this routine a name.');
+      showAlert('Name required', 'Give this routine a name.');
       return;
     }
     if (exerciseIds.length === 0) {
-      Alert.alert('Add exercises', 'Pick at least one exercise.');
+      showAlert('Add exercises', 'Pick at least one exercise.');
       return;
     }
     if (isEdit && id) {

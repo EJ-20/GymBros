@@ -1,3 +1,4 @@
+import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
@@ -6,7 +7,6 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -17,6 +17,7 @@ import {
 export default function RoutinesScreen() {
   const c = useColors();
   const { localDataVersion } = useAuth();
+  const showAlert = useAppAlert();
   const router = useRouter();
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
 
@@ -27,7 +28,7 @@ export default function RoutinesScreen() {
   useFocusEffect(useCallback(() => load(), [load, localDataVersion]));
 
   const remove = (t: WorkoutTemplate) => {
-    Alert.alert('Delete routine', `Remove “${t.name}”?`, [
+    showAlert('Delete routine', `Remove “${t.name}”?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
