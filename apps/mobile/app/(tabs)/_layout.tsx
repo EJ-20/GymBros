@@ -9,7 +9,7 @@ export default function TabLayout() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
-      <SignInPromptBanner />
+      <SignInPromptBanner />x
       <View style={{ flex: 1 }}>
         <Tabs
           screenOptions={{
