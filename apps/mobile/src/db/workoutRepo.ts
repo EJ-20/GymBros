@@ -193,6 +193,40 @@ export function addSet(
   };
 }
 
+/**
+ * Removes one set from the in-progress session only. Renumbers order_index for that exercise.
+ */
+export function deleteSetFromActiveSession(setId: string): boolean {
+  const d = getDb();
+  const row = d.getFirstSync<{
+    session_id: string;
+    exercise_id: string;
+  }>(
+    `SELECT sl.session_id, sl.exercise_id
+     FROM set_logs sl
+     INNER JOIN workout_sessions ws ON ws.id = sl.session_id
+     WHERE sl.id = ? AND ws.ended_at IS NULL`,
+    [setId]
+  );
+  if (!row) return false;
+
+  d.runSync('DELETE FROM set_logs WHERE id = ?', [setId]);
+
+  const remaining = d.getAllSync<{ id: string }>(
+    'SELECT id FROM set_logs WHERE session_id = ? AND exercise_id = ? ORDER BY order_index ASC',
+    [row.session_id, row.exercise_id]
+  );
+  for (let i = 0; i < remaining.length; i++) {
+    d.runSync('UPDATE set_logs SET order_index = ?, dirty = 1 WHERE id = ?', [
+      i,
+      remaining[i]!.id,
+    ]);
+  }
+
+  d.runSync('UPDATE workout_sessions SET dirty = 1 WHERE id = ?', [row.session_id]);
+  return true;
+}
+
 export function getExerciseById(id: string): Exercise | null {
   const d = getDb();
   const r = d.getFirstSync<Record<string, unknown>>(

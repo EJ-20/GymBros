@@ -47,7 +47,7 @@ npm run start --workspace=apps/mobile
 
 **Web:** Workouts use [sql.js](https://sql.js.org/) (WASM loaded from `sql.js.org`) because the `expo-sqlite` npm package does not ship `wa-sqlite.wasm`, so the browser never loads `expo-sqlite`’s broken web worker. iOS/Android still use `expo-sqlite` on device. The first web load needs network access to fetch the WASM file.
 
-**Routines:** Saved in `workout_templates` (exercise order). Create/edit under **Routines** (from Today or Workout), **Start from routine** on the Workout tab, or **Save as routine** during an active session (order follows first logged set per exercise). They sync with **Account → Sync** once the `workout_templates` table exists in Supabase (second migration file).
+**Routines:** Saved in `workout_templates` (exercise order). Create/edit under **Routines** (from Home or Workout), **Start from routine** on the Workout tab, or **Save as routine** during an active session (order follows first logged set per exercise). They sync with **Account → Sync** once the `workout_templates` table exists in Supabase (second migration file).
 
 **Sync:** Account → **Sync (push + pull)** uploads dirty local rows, then downloads `exercises`, `workout_sessions`, `set_logs`, and `workout_templates` from Supabase and merges them into SQLite. Local rows still marked dirty (unsent changes) are not overwritten on pull until you sync again after a successful push.
 

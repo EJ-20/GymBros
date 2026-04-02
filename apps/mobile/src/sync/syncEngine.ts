@@ -293,6 +293,26 @@ export async function deleteSessionFromCloud(
   return { error: null, attempted: true };
 }
 
+/** Deletes a single set row from Supabase (matches mobile `set_logs.id` / `client_local_id`). */
+export async function deleteSetLogFromCloud(
+  clientLocalSetId: string
+): Promise<{ error: string | null; attempted: boolean }> {
+  if (!supabaseConfigured) return { error: null, attempted: false };
+  const sb = getSupabase();
+  if (!sb) return { error: null, attempted: false };
+  const { data: auth } = await sb.auth.getUser();
+  if (!auth.user) return { error: null, attempted: false };
+
+  const { error } = await sb
+    .from('set_logs')
+    .delete()
+    .eq('user_id', auth.user.id)
+    .eq('client_local_id', clientLocalSetId);
+
+  if (error) return { error: error.message, attempted: true };
+  return { error: null, attempted: true };
+}
+
 export type BenchmarkSex = 'male' | 'female' | 'non_binary' | 'prefer_not';
 
 function parseBenchmarkSex(v: unknown): BenchmarkSex | null {
@@ -333,6 +353,7 @@ export async function pullProfile(): Promise<{
     sex: parseBenchmarkSex(data.sex),
     heightCm: data.height_cm != null ? Number(data.height_cm) : null,
     yearsTraining: data.years_training != null ? parseInt(String(data.years_training), 10) : null,
+    weightUnit: data.weight_unit === 'lbs' ? 'lbs' : 'kg',
   };
 }
 

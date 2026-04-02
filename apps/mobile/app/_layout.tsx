@@ -1,5 +1,6 @@
 import { AppAlertProvider } from '@/src/contexts/AppAlertContext';
 import { AuthProvider } from '@/src/contexts/AuthContext';
+import { ToastProvider } from '@/src/contexts/ToastContext';
 import { WeightUnitProvider } from '@/src/contexts/WeightUnitContext';
 import { initDatabase } from '@/src/db/database';
 import { parseWatchIntent } from '@/src/watch/WatchBridge';
@@ -63,6 +64,7 @@ export default function RootLayout() {
         <AuthProvider>
           <WeightUnitProvider>
           <AppAlertProvider>
+          <ToastProvider>
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: true }} />
@@ -79,6 +81,14 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="profile-edit"
+              options={{
+                title: 'Edit profile',
+                presentation: 'modal',
+                headerShown: true,
+              }}
+            />
+            <Stack.Screen
               name="sign-in"
               options={{
                 title: 'Sign in',
@@ -87,6 +97,7 @@ export default function RootLayout() {
               }}
             />
           </Stack>
+          </ToastProvider>
           </AppAlertProvider>
           </WeightUnitProvider>
         </AuthProvider>

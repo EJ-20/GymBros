@@ -1,9 +1,12 @@
 import { bestSetFromHistory, isPrCandidate } from '@gymbros/shared';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { useToast } from '@/src/contexts/ToastContext';
 import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { useColors } from '@/src/hooks/useColors';
+import { friendlyBackendError } from '@/src/lib/friendlyError';
 import * as repo from '@/src/db/workoutRepo';
+import { deleteSetLogFromCloud } from '@/src/sync/syncEngine';
 import { openWorkoutDeepLink } from '@/src/watch/WatchBridge';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,11 +15,16 @@ import {
   formatWeightFromKgForInput,
   parseWeightInputToKg,
   weightUnitLabel,
+  type WeightUnit,
 } from '@/src/lib/weightUnits';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ElementRef } from 'react';
 import {
+  AppState,
+  type AppStateStatus,
   FlatList,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,12 +34,36 @@ import {
 } from 'react-native';
 import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros/shared';
 
+function setDeleteSummary(s: SetLog, unit: WeightUnit): string {
+  const w =
+    s.weightKg != null
+      ? `${formatWeightFromKgForInput(s.weightKg, unit)} ${weightUnitLabel(unit)}`
+      : '—';
+  return `${s.reps ?? '—'} reps × ${w}`;
+}
+
+function formatWorkoutElapsed(startedAtIso: string, nowMs: number): string {
+  const t0 = new Date(startedAtIso).getTime();
+  let sec = Math.floor((nowMs - t0) / 1000);
+  if (!Number.isFinite(sec) || sec < 0) sec = 0;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export default function WorkoutScreen() {
   const c = useColors();
-  const { localDataVersion } = useAuth();
+  const { localDataVersion, user, backendReady } = useAuth();
   const { unit } = useWeightUnit();
   const showAlert = useAppAlert();
+  const showToast = useToast();
   const prevUnitRef = useRef(unit);
+  const repsInputRef = useRef<ElementRef<typeof TextInput>>(null);
+  const weightInputRef = useRef<ElementRef<typeof TextInput>>(null);
   const router = useRouter();
   const [session, setSession] = useState<WorkoutSession | null>(null);
   const [setsByExercise, setSetsByExercise] = useState<Record<string, SetLog[]>>({});
@@ -44,7 +76,7 @@ export default function WorkoutScreen() {
   const [endNotes, setEndNotes] = useState('');
   const [endRpe, setEndRpe] = useState<number | null>(null);
   const [customName, setCustomName] = useState('');
-  const [reps, setReps] = useState('8');
+  const [reps, setReps] = useState('');
   const [weight, setWeight] = useState('');
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   /** When set, shows chips to jump through a saved routine (in-memory for this session). */
@@ -77,22 +109,16 @@ export default function WorkoutScreen() {
     const prev = prevUnitRef.current;
     prevUnitRef.current = unit;
     setWeight((w) => {
-      if (w.trim() === '') return unit === 'kg' ? '20' : '45';
+      if (w.trim() === '') return '';
       const kg = parseWeightInputToKg(w, prev);
       if (kg == null) return w;
       return formatWeightFromKgForInput(kg, unit);
     });
   }, [unit]);
 
-  const prefillFromHistory = (exerciseId: string, sessionIdForPrior: string) => {
-    const prior = repo.listSetsForExerciseBeforeSession(exerciseId, sessionIdForPrior);
-    const best = bestSetFromHistory(prior);
-    if (best) {
-      setReps(String(best.reps));
-      setWeight(formatWeightFromKgForInput(best.weightKg, unit));
-    } else {
-      setWeight(unit === 'kg' ? '20' : '45');
-    }
+  const prefillFromHistory = (_exerciseId: string, _sessionIdForPrior: string) => {
+    setReps('');
+    setWeight('');
   };
 
   const pickExercise = (ex: Exercise) => {
@@ -108,9 +134,47 @@ export default function WorkoutScreen() {
     prefillFromHistory(exerciseId, session.id);
   };
 
-  const elapsedMin = session
-    ? Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000)
-    : 0;
+  /** Last set for this exercise in the current session, else best set from completed past sessions. */
+  const previousReference = useMemo((): {
+    reps: number | null;
+    weightKg: number | null;
+  } | null => {
+    if (!session || !selectedExerciseId) return null;
+    const cur = setsByExercise[selectedExerciseId];
+    if (cur?.length) {
+      const last = cur[cur.length - 1]!;
+      return { reps: last.reps, weightKg: last.weightKg };
+    }
+    const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
+    const best = bestSetFromHistory(prior);
+    if (!best) return null;
+    return { reps: best.reps, weightKg: best.weightKg };
+  }, [session, selectedExerciseId, setsByExercise]);
+
+  const repsPlaceholder =
+    previousReference?.reps != null ? String(previousReference.reps) : '0';
+  const weightPlaceholder =
+    previousReference?.weightKg != null
+      ? formatWeightFromKgForInput(previousReference.weightKg, unit)
+      : unit === 'kg'
+        ? '20'
+        : '45';
+
+  const [elapsedNowMs, setElapsedNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!session) return;
+    setElapsedNowMs(Date.now());
+    const id = setInterval(() => setElapsedNowMs(Date.now()), 1000);
+    const onAppState = (s: AppStateStatus) => {
+      if (s === 'active') setElapsedNowMs(Date.now());
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => {
+      clearInterval(id);
+      sub.remove();
+    };
+  }, [session?.id]);
 
   const start = () => {
     setRoutineExerciseIds(null);
@@ -187,13 +251,13 @@ export default function WorkoutScreen() {
     refresh();
   };
 
-  const addSet = () => {
+  const commitSetFromStrings = (rStr: string, wStr: string) => {
     if (!session || !selectedExerciseId) {
       showAlert('Pick an exercise', 'Choose an exercise before adding a set.');
       return;
     }
-    const r = parseInt(reps, 10);
-    const wKg = parseWeightInputToKg(weight, unit);
+    const r = parseInt(rStr, 10);
+    const wKg = parseWeightInputToKg(wStr, unit);
     if (!Number.isFinite(r) || r < 0 || wKg === null) {
       showAlert(
         'Invalid numbers',
@@ -209,7 +273,57 @@ export default function WorkoutScreen() {
     });
     const pr = isPrCandidate(newSet, best);
     refresh();
-    if (pr) showAlert('PR', 'Nice — estimated 1RM up on this exercise.');
+    if (pr) showToast('PR — estimated 1RM up on this exercise');
+    setReps('');
+    setWeight('');
+    Keyboard.dismiss();
+    requestAnimationFrame(() => repsInputRef.current?.focus());
+  };
+
+  const addSet = () => {
+    const rResolved = reps.trim() === '' ? repsPlaceholder : reps.trim();
+    const wResolved = weight.trim() === '' ? weightPlaceholder : weight.trim();
+    setReps(rResolved);
+    setWeight(wResolved);
+    commitSetFromStrings(rResolved, wResolved);
+  };
+
+  const onRepsSubmitEditing = () => {
+    setReps((r) => (r.trim() === '' ? repsPlaceholder : r.trim()));
+    weightInputRef.current?.focus();
+  };
+
+  const onWeightSubmitEditing = () => {
+    const rResolved = reps.trim() === '' ? repsPlaceholder : reps.trim();
+    const wResolved = weight.trim() === '' ? weightPlaceholder : weight.trim();
+    setReps(rResolved);
+    setWeight(wResolved);
+    Keyboard.dismiss();
+    commitSetFromStrings(rResolved, wResolved);
+  };
+
+  const confirmDeleteSet = (s: SetLog) => {
+    showAlert('Remove set?', `Delete ${setDeleteSummary(s, unit)} from this session?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const localId = s.id;
+          if (!repo.deleteSetFromActiveSession(localId)) return;
+          if (user && backendReady) {
+            const { error, attempted } = await deleteSetLogFromCloud(localId);
+            if (error && attempted) {
+              showAlert(
+                'Cloud delete',
+                `${friendlyBackendError(error)}\n\nThe set was removed on this device.`
+              );
+            }
+          }
+          refresh();
+        },
+      },
+    ]);
   };
 
   const exerciseRows = Object.keys(setsByExercise).map((id) => ({
@@ -317,8 +431,14 @@ export default function WorkoutScreen() {
               <Text style={[styles.bannerLabel, { color: c.tint }]}>Live session</Text>
             </View>
             <View style={styles.timerRow}>
-              <Text style={[styles.timerValue, { color: c.text }]}>{elapsedMin}</Text>
-              <Text style={[styles.timerUnit, { color: c.textMuted }]}>min</Text>
+              <Text
+                style={[styles.timerValue, { color: c.text }]}
+                selectable={false}
+                maxFontSizeMultiplier={1.4}
+              >
+                {formatWorkoutElapsed(session.startedAt, elapsedNowMs)}
+              </Text>
+              <Text style={[styles.timerUnit, { color: c.textMuted }]}>elapsed</Text>
             </View>
             <Pressable onPress={openSaveRoutine} hitSlop={8} style={styles.saveRoutineRow}>
               <Ionicons name="bookmark-outline" size={16} color={c.tint} />
@@ -405,11 +525,17 @@ export default function WorkoutScreen() {
           <View style={styles.inputCol}>
             <Text style={[styles.inputLabel, { color: c.textMuted }]}>Reps</Text>
             <TextInput
+              ref={repsInputRef}
               style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
-              keyboardType="number-pad"
+              keyboardType={
+                Platform.OS === 'web' ? 'default' : Platform.OS === 'ios' ? 'number-pad' : 'numeric'
+              }
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={onRepsSubmitEditing}
               value={reps}
               onChangeText={setReps}
-              placeholder="0"
+              placeholder={repsPlaceholder}
               placeholderTextColor={c.textMuted}
             />
           </View>
@@ -418,11 +544,15 @@ export default function WorkoutScreen() {
               Weight ({weightUnitLabel(unit)})
             </Text>
             <TextInput
+              ref={weightInputRef}
               style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
-              keyboardType="decimal-pad"
+              keyboardType={Platform.OS === 'web' ? 'default' : 'decimal-pad'}
+              returnKeyType="done"
+              blurOnSubmit={true}
+              onSubmitEditing={onWeightSubmitEditing}
               value={weight}
               onChangeText={setWeight}
-              placeholder="0"
+              placeholder={weightPlaceholder}
               placeholderTextColor={c.textMuted}
             />
           </View>
@@ -465,8 +595,16 @@ export default function WorkoutScreen() {
                     : '—'}
                 </Text>
                 {s.rpe != null ? (
-                  <Text style={{ color: c.textMuted, fontSize: 13 }}>RPE {s.rpe}</Text>
+                  <Text style={{ color: c.textMuted, fontSize: 13, marginRight: 4 }}>RPE {s.rpe}</Text>
                 ) : null}
+                <Pressable
+                  onPress={() => confirmDeleteSet(s)}
+                  hitSlop={10}
+                  accessibilityLabel="Remove set"
+                  style={[styles.setDeleteBtn, { borderColor: c.danger, backgroundColor: c.background }]}
+                >
+                  <Ionicons name="trash-outline" size={18} color={c.danger} />
+                </Pressable>
               </View>
             ))}
           </View>
@@ -831,6 +969,11 @@ const styles = StyleSheet.create({
   exName: { fontWeight: '700', fontSize: 17 },
   setDivider: { height: StyleSheet.hairlineWidth, marginVertical: 10 },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  setDeleteBtn: {
+    padding: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
   setBadge: {
     minWidth: 26,
     height: 26,

@@ -3,19 +3,84 @@ import { useAuth } from '@/src/contexts/AuthContext';
 import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
+import { friendlyBackendError } from '@/src/lib/friendlyError';
+import {
+  fetchGlobalBenchmarks,
+  topPercentFromPercentile,
+  type GlobalBenchmarkPayload,
+} from '@/src/sync/benchmarks';
 import { Ionicons } from '@expo/vector-icons';
 import { Link } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { I18nManager, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HomeDashboardStats } from '@/src/analytics/homeStats';
 import { volumeKgToDisplayNumber, volumeUnitSuffix } from '@/src/lib/weightUnits';
 
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+function formatPct(p: number): string {
+  return Number.isInteger(p) ? String(p) : p.toFixed(1);
+}
+
+function leadershipLoadTile(
+  bench: GlobalBenchmarkPayload | null,
+  benchLoadError: string | null,
+  user: unknown,
+  backendReady: boolean
+): { value: string; sub?: string; hint: string } {
+  if (!backendReady) {
+    return { value: '—', hint: 'Configure backend to see global rank' };
+  }
+  if (!user) {
+    return { value: '—', hint: 'Sign in to see where you rank vs other lifters' };
+  }
+  if (benchLoadError) {
+    return { value: '—', hint: benchLoadError };
+  }
+  if (!bench) {
+    return { value: '…', hint: 'Loading cohort rank…' };
+  }
+  if (!bench.ok) {
+    const hint =
+      bench.message ??
+      (bench.code === 'not_opted_in'
+        ? 'Turn on global benchmarks under Account.'
+        : 'Finish benchmark profile under Account, then sync.');
+    return { value: '—', hint: hint };
+  }
+  const p = bench.global?.relative_weekly_load_percentile;
+  if (p == null || Number.isNaN(p)) {
+    return { value: '—', hint: 'Enable global benchmarks under Account.' };
+  }
+  const top = topPercentFromPercentile(p);
+  return {
+    value: `${formatPct(p)}%`,
+    sub: 'ahead of lifters',
+    hint:
+      top != null
+        ? `≈ Top ${top}% · weekly load vs body weight`
+        : 'Weekly load vs body weight, global cohort',
+  };
+}
+
+function sessionsRankWide(
+  bench: GlobalBenchmarkPayload | null,
+  benchLoadError: string | null,
+  user: unknown,
+  backendReady: boolean
+): { value: string; hint: string } {
+  if (!backendReady || !user || benchLoadError || !bench || !bench.ok) {
+    return { value: '—', hint: 'workouts vs lifters' };
+  }
+  const p = bench.global?.sessions_7d_percentile;
+  if (p == null || Number.isNaN(p)) {
+    return { value: '—', hint: 'workouts vs lifters' };
+  }
+  const top = topPercentFromPercentile(p);
+  return {
+    value: `${formatPct(p)}%`,
+    hint: top != null ? `ahead · ≈ top ${top}%` : 'ahead of cohort on frequency',
+  };
 }
 
 function formatCompactDate(iso: string): string {
@@ -41,14 +106,6 @@ function deltaLabel(current: number, previous: number, unit: string): { text: st
   };
 }
 
-function pctVolumeDelta(current: number, previous: number): { text: string; up: boolean | null } {
-  if (previous === 0 && current === 0) return { text: 'No change', up: null };
-  if (previous === 0) return { text: 'New volume this week', up: true };
-  const pct = Math.round(((current - previous) / previous) * 100);
-  if (pct === 0) return { text: 'Same volume as prior week', up: null };
-  return { text: `${pct > 0 ? '+' : ''}${pct}% volume vs prior week`, up: pct > 0 };
-}
-
 function formatGymMinutes(totalMin: number): string {
   if (totalMin < 60) return `${totalMin}m`;
   const h = Math.floor(totalMin / 60);
@@ -56,25 +113,49 @@ function formatGymMinutes(totalMin: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-export default function TodayScreen() {
+export default function HomeScreen() {
   const c = useColors();
-  const { localDataVersion } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { user, backendReady, localDataVersion } = useAuth();
   const { unit } = useWeightUnit();
   const [stats, setStats] = useState<HomeDashboardStats>(() => getHomeDashboardStats());
+  const [bench, setBench] = useState<GlobalBenchmarkPayload | null>(null);
+  const [benchLoadError, setBenchLoadError] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       setStats(getHomeDashboardStats());
-    }, [localDataVersion])
+      let cancelled = false;
+      if (!user || !backendReady) {
+        setBench(null);
+        setBenchLoadError(null);
+        return () => {
+          cancelled = true;
+        };
+      }
+      void (async () => {
+        const gb = await fetchGlobalBenchmarks();
+        if (cancelled) return;
+        if (gb.error) {
+          setBenchLoadError(friendlyBackendError(gb.error));
+          setBench(null);
+        } else {
+          setBenchLoadError(null);
+          setBench(gb.data);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [localDataVersion, user, backendReady])
   );
 
   const { last7, prev7, last30, streakDays, allTimeCompleted, topExerciseLast7, lastSession, activeSession } =
     stats;
 
   const sessionDelta = deltaLabel(last7.sessions, prev7.sessions, 'session');
-  const volumeDelta = pctVolumeDelta(last7.volumeKg, prev7.volumeKg);
-  const vol7Display = volumeKgToDisplayNumber(last7.volumeKg, unit);
-  const vol30Display = volumeKgToDisplayNumber(last30.volumeKg, unit);
+  const leadershipTile = leadershipLoadTile(bench, benchLoadError, user, backendReady);
+  const sessionsRank = sessionsRankWide(bench, benchLoadError, user, backendReady);
   const lastSessVolDisplay = lastSession
     ? volumeKgToDisplayNumber(repo.sessionVolumeKg(lastSession.id), unit)
     : 0;
@@ -87,190 +168,184 @@ export default function TodayScreen() {
       : null;
 
   return (
-    <ScrollView
-      style={[styles.scroll, { backgroundColor: c.background }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.headerBlock}>
-        <Text style={[styles.kicker, { color: c.textMuted }]}>{greeting()}</Text>
-        <Text style={[styles.heroTitle, { color: c.text }]}>Today</Text>
-        <Text style={[styles.dateLine, { color: c.textMuted }]}>
-          {new Date().toLocaleDateString(undefined, {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-          })}
+    <View style={[styles.root, { backgroundColor: c.background }]}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 100 + Math.max(insets.bottom, 0) },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={[styles.sectionLabel, styles.sectionLabelFirst, { color: c.textMuted }]}>
+          Last 7 days
         </Text>
-      </View>
+        <View style={styles.statGrid}>
+          <StatTile
+            c={c}
+            icon="calendar-outline"
+            label="Sessions"
+            value={String(last7.sessions)}
+            hint={sessionDelta.text}
+            hintUp={sessionDelta.up}
+          />
+          <StatTile
+            c={c}
+            icon="trophy-outline"
+            label="Leadership"
+            value={leadershipTile.value}
+            sub={leadershipTile.sub}
+            hint={leadershipTile.hint}
+          />
+          <StatTile
+            c={c}
+            icon="flame-outline"
+            label="Streak"
+            value={streakDays > 0 ? `${streakDays}d` : '—'}
+            hint={streakDays > 0 ? 'Consecutive training days' : 'Train any day to start'}
+          />
+          <StatTile
+            c={c}
+            icon="time-outline"
+            label="Time in gym"
+            value={formatGymMinutes(last7.totalMin)}
+            hint="Completed sessions, last 7 days"
+          />
+        </View>
 
-      {activeSession ? (
-        <View style={[styles.heroCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <View style={[styles.heroAccent, { backgroundColor: c.tint }]} />
-          <View style={styles.heroInner}>
-            <View style={styles.heroRow}>
-              <View style={[styles.pulseDot, { backgroundColor: c.tint }]} />
-              <Text style={[styles.heroLabel, { color: c.tint }]}>In progress</Text>
+        {activeSession ? (
+          <View style={[styles.heroCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={[styles.heroAccent, { backgroundColor: c.tint }]} />
+            <View style={styles.heroInner}>
+              <View style={styles.heroRow}>
+                <View style={[styles.pulseDot, { backgroundColor: c.tint }]} />
+                <Text style={[styles.heroLabel, { color: c.tint }]}>In progress</Text>
+              </View>
+              <Text style={[styles.heroHeadline, { color: c.text }]}>Workout running</Text>
+              <Text style={[styles.heroMeta, { color: c.textMuted }]}>
+                Started {formatCompactDate(activeSession.startedAt)} ·{' '}
+                {new Date(activeSession.startedAt).toLocaleTimeString(undefined, {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </Text>
+              <Link href="/(tabs)/workout" asChild>
+                <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]}>
+                  <Text style={[styles.primaryBtnText, { color: c.onTint }]}>Continue workout</Text>
+                  <Ionicons name="arrow-forward" size={18} color={c.onTint} style={styles.btnIcon} />
+                </Pressable>
+              </Link>
             </View>
-            <Text style={[styles.heroHeadline, { color: c.text }]}>Workout running</Text>
-            <Text style={[styles.heroMeta, { color: c.textMuted }]}>
-              Started {formatCompactDate(activeSession.startedAt)} ·{' '}
-              {new Date(activeSession.startedAt).toLocaleTimeString(undefined, {
-                hour: 'numeric',
-                minute: '2-digit',
-              })}
-            </Text>
-            <Link href="/(tabs)/workout" asChild>
-              <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]}>
-                <Text style={[styles.primaryBtnText, { color: c.onTint }]}>Continue workout</Text>
-                <Ionicons name="arrow-forward" size={18} color={c.onTint} style={styles.btnIcon} />
-              </Pressable>
-            </Link>
           </View>
-        </View>
-      ) : (
-        <View style={[styles.heroCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <View style={[styles.heroAccent, { backgroundColor: c.tint }]} />
-          <View style={styles.heroInner}>
-            <Text style={[styles.heroHeadline, { color: c.text }]}>Ready when you are</Text>
-            <Text style={[styles.heroMeta, { color: c.textMuted }]}>
-              Log sets, save routines, and sync from Account when you are online.
-            </Text>
-            <Link href="/(tabs)/workout" asChild>
-              <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]}>
-                <Ionicons name="barbell-outline" size={20} color={c.tint} style={styles.btnIconLeft} />
-                <Text style={[styles.primaryBtnText, { color: c.tint }]}>Start workout</Text>
-              </Pressable>
-            </Link>
-          </View>
-        </View>
-      )}
+        ) : null}
 
-      <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Last 7 days</Text>
-      <View style={styles.statGrid}>
-        <StatTile
-          c={c}
-          icon="calendar-outline"
-          label="Sessions"
-          value={String(last7.sessions)}
-          hint={sessionDelta.text}
-          hintUp={sessionDelta.up}
-        />
-        <StatTile
-          c={c}
-          icon="bar-chart-outline"
-          label="Volume"
-          value={
-            vol7Display >= 1000
-              ? `${(vol7Display / 1000).toFixed(1)}k`
-              : String(vol7Display)
-          }
-          sub={volumeUnitSuffix(unit)}
-          hint={volumeDelta.text}
-          hintUp={volumeDelta.up}
-        />
-        <StatTile
-          c={c}
-          icon="flame-outline"
-          label="Streak"
-          value={streakDays > 0 ? `${streakDays}d` : '—'}
-          hint={streakDays > 0 ? 'Consecutive training days' : 'Train any day to start'}
-        />
-        <StatTile
-          c={c}
-          icon="time-outline"
-          label="Time in gym"
-          value={formatGymMinutes(last7.totalMin)}
-          hint="Completed sessions, last 7 days"
-        />
-      </View>
-
-      <View style={[styles.wideCard, { backgroundColor: c.card, borderColor: c.border }]}>
-        <View style={styles.wideHeader}>
-          <Ionicons name="trending-up-outline" size={20} color={c.tint} />
-          <Text style={[styles.wideTitle, { color: c.text }]}>Last 30 days</Text>
-        </View>
-        <View style={styles.wideRow}>
-          <View style={styles.wideCol}>
-            <Text style={[styles.wideValue, { color: c.text }]}>{last30.sessions}</Text>
-            <Text style={[styles.wideHint, { color: c.textMuted }]}>sessions</Text>
+        <View style={[styles.wideCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          <View style={styles.wideHeader}>
+            <Ionicons name="trending-up-outline" size={20} color={c.tint} />
+            <Text style={[styles.wideTitle, { color: c.text }]}>Last 30 days</Text>
           </View>
-          <View style={[styles.wideDivider, { backgroundColor: c.border }]} />
-          <View style={styles.wideCol}>
-            <Text style={[styles.wideValue, { color: c.text }]}>
-              {vol30Display.toLocaleString()}
-            </Text>
-            <Text style={[styles.wideHint, { color: c.textMuted }]}>
-              {volumeUnitSuffix(unit)} volume
+          <View style={styles.wideRow}>
+            <View style={styles.wideCol}>
+              <Text style={[styles.wideValue, { color: c.text }]}>{last30.sessions}</Text>
+              <Text style={[styles.wideHint, { color: c.textMuted }]}>sessions</Text>
+            </View>
+            <View style={[styles.wideDivider, { backgroundColor: c.border }]} />
+            <View style={styles.wideCol}>
+              <Text style={[styles.wideValue, { color: c.text }]}>{sessionsRank.value}</Text>
+              <Text style={[styles.wideHint, { color: c.textMuted }]}>{sessionsRank.hint}</Text>
+            </View>
+            <View style={[styles.wideDivider, { backgroundColor: c.border }]} />
+            <View style={styles.wideCol}>
+              <Text style={[styles.wideValue, { color: c.text }]}>{allTimeCompleted}</Text>
+              <Text style={[styles.wideHint, { color: c.textMuted }]}>finished (all time)</Text>
+            </View>
+          </View>
+        </View>
+
+        {topExerciseLast7 ? (
+          <View style={[styles.insightCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <Text style={[styles.sectionLabel, { color: c.textMuted, marginBottom: 6 }]}>Most sets (7d)</Text>
+            <Text style={[styles.insightTitle, { color: c.text }]}>{topExerciseLast7.name}</Text>
+            <Text style={{ color: c.textMuted, fontSize: 14 }}>
+              {topExerciseLast7.setCount} set{topExerciseLast7.setCount === 1 ? '' : 's'} logged this week
             </Text>
           </View>
-          <View style={[styles.wideDivider, { backgroundColor: c.border }]} />
-          <View style={styles.wideCol}>
-            <Text style={[styles.wideValue, { color: c.text }]}>{allTimeCompleted}</Text>
-            <Text style={[styles.wideHint, { color: c.textMuted }]}>finished (all time)</Text>
-          </View>
-        </View>
-      </View>
+        ) : null}
 
-      {topExerciseLast7 ? (
-        <View style={[styles.insightCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Text style={[styles.sectionLabel, { color: c.textMuted, marginBottom: 6 }]}>Most sets (7d)</Text>
-          <Text style={[styles.insightTitle, { color: c.text }]}>{topExerciseLast7.name}</Text>
-          <Text style={{ color: c.textMuted, fontSize: 14 }}>
-            {topExerciseLast7.setCount} set{topExerciseLast7.setCount === 1 ? '' : 's'} logged this week
-          </Text>
-        </View>
-      ) : null}
-
-      {lastSession ? (
-        <View style={[styles.lastCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <View style={styles.lastHeader}>
-            <Text style={[styles.sectionLabel, { color: c.textMuted, marginBottom: 0 }]}>Last session</Text>
-            <Text style={{ color: c.textMuted, fontSize: 13 }}>{formatCompactDate(lastSession.startedAt)}</Text>
-          </View>
-          <Text style={[styles.lastVolume, { color: c.text }]}>
-            {lastSessVolDisplay.toLocaleString()} {volumeUnitSuffix(unit)}
-            {lastSession.perceivedExertion != null ? ` · RPE ${lastSession.perceivedExertion}` : ''}
-          </Text>
-          <Text style={{ color: c.textMuted, fontSize: 14 }}>
-            {lastDurationMin != null ? `${lastDurationMin} min` : ''}
-          </Text>
-          {lastSession.notes ? (
-            <Text style={{ color: c.textMuted, fontSize: 14 }} numberOfLines={2}>
-              {lastSession.notes}
+        {lastSession ? (
+          <View style={[styles.lastCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.lastHeader}>
+              <Text style={[styles.sectionLabel, { color: c.textMuted, marginBottom: 0 }]}>Last session</Text>
+              <Text style={{ color: c.textMuted, fontSize: 13 }}>{formatCompactDate(lastSession.startedAt)}</Text>
+            </View>
+            <Text style={[styles.lastVolume, { color: c.text }]}>
+              {lastSessVolDisplay.toLocaleString()} {volumeUnitSuffix(unit)}
+              {lastSession.perceivedExertion != null ? ` · RPE ${lastSession.perceivedExertion}` : ''}
             </Text>
-          ) : null}
-        </View>
-      ) : (
-        <View style={[styles.emptyHint, { borderColor: c.border }]}>
-          <Text style={{ color: c.textMuted, textAlign: 'center', lineHeight: 20 }}>
-            Complete a workout to unlock week-over-week trends and streaks.
-          </Text>
-        </View>
-      )}
+            <Text style={{ color: c.textMuted, fontSize: 14 }}>
+              {lastDurationMin != null ? `${lastDurationMin} min` : ''}
+            </Text>
+            {lastSession.notes ? (
+              <Text style={{ color: c.textMuted, fontSize: 14 }} numberOfLines={2}>
+                {lastSession.notes}
+              </Text>
+            ) : null}
+          </View>
+        ) : (
+          <View style={[styles.emptyHint, { borderColor: c.border }]}>
+            <Text style={{ color: c.textMuted, textAlign: 'center', lineHeight: 20 }}>
+              Complete a workout to unlock week-over-week trends and streaks.
+            </Text>
+          </View>
+        )}
 
-      <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Shortcuts</Text>
-      <View style={styles.shortcuts}>
-        <Link href="/routines" asChild>
-          <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Ionicons name="list-outline" size={22} color={c.tint} />
-            <Text style={[styles.shortcutText, { color: c.text }]}>Routines</Text>
-          </Pressable>
-        </Link>
-        <Link href="/(tabs)/history" asChild>
-          <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Ionicons name="calendar-outline" size={22} color={c.tint} />
-            <Text style={[styles.shortcutText, { color: c.text }]}>History</Text>
-          </Pressable>
-        </Link>
-        <Link href="/(tabs)/compare" asChild>
-          <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Ionicons name="people-outline" size={22} color={c.tint} />
-            <Text style={[styles.shortcutText, { color: c.text }]}>Compare</Text>
+        <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Shortcuts</Text>
+        <View style={styles.shortcuts}>
+          <Link href="/routines" asChild>
+            <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
+              <Ionicons name="list-outline" size={22} color={c.tint} />
+              <Text style={[styles.shortcutText, { color: c.text }]}>Routines</Text>
+            </Pressable>
+          </Link>
+          <Link href="/(tabs)/history" asChild>
+            <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
+              <Ionicons name="calendar-outline" size={22} color={c.tint} />
+              <Text style={[styles.shortcutText, { color: c.text }]}>History</Text>
+            </Pressable>
+          </Link>
+          <Link href="/(tabs)/compare" asChild>
+            <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
+              <Ionicons name="people-outline" size={22} color={c.tint} />
+              <Text style={[styles.shortcutText, { color: c.text }]}>Compare</Text>
+            </Pressable>
+          </Link>
+        </View>
+      </ScrollView>
+
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.fabAnchor,
+          {
+            bottom: Math.max(insets.bottom, 16) + 16,
+            paddingHorizontal: 24,
+            justifyContent: I18nManager.isRTL ? 'flex-start' : 'flex-end',
+          },
+        ]}
+      >
+        <Link href="/(tabs)/workout" asChild>
+          <Pressable
+            style={({ pressed }) => [styles.workoutFabPressable, pressed && styles.workoutFabPressed]}
+            accessibilityLabel={activeSession ? 'Continue workout' : 'Start workout'}
+            accessibilityRole="button"
+          >
+            <View style={[styles.workoutFabSquare, { backgroundColor: c.tint, shadowColor: c.text }]}>
+              <Ionicons name="add" size={34} color={c.onTintLight} />
+            </View>
           </Pressable>
         </Link>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -316,12 +391,9 @@ function StatTile({
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   scroll: { flex: 1 },
-  content: { padding: 20, paddingBottom: 48, gap: 4 },
-  headerBlock: { marginBottom: 8 },
-  kicker: { fontSize: 15, fontWeight: '600', marginBottom: 4 },
-  heroTitle: { fontSize: 34, fontWeight: '800', letterSpacing: -0.5 },
-  dateLine: { fontSize: 15, marginTop: 4 },
+  content: { padding: 20, paddingTop: 12, gap: 4 },
   sectionLabel: {
     fontSize: 12,
     fontWeight: '700',
@@ -330,6 +402,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 10,
   },
+  sectionLabelFirst: { marginTop: 0 },
   heroCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -355,7 +428,30 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { fontWeight: '700', fontSize: 16 },
   btnIcon: { marginLeft: 4 },
-  btnIconLeft: { marginRight: -4 },
+  fabAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  workoutFabPressable: {
+    borderRadius: 18,
+  },
+  workoutFabPressed: { opacity: 0.92, transform: [{ scale: 0.97 }] },
+  /** Green fill lives on this View so web Link/anchor doesn’t strip backgroundColor. */
+  workoutFabSquare: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 10,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+  },
   statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   statTile: {
     width: '48%',

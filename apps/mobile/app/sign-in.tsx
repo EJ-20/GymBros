@@ -109,7 +109,10 @@ export default function SignInScreen() {
         <Text style={[styles.headline, { color: c.text }]}>Sign in to GymBros</Text>
         <Text style={[styles.lede, { color: c.textMuted }]}>
           Back up workouts to the cloud, sync across devices, and use Compare with friends. You can
-          still train without an account—data stays on this device until you sign in.
+          still train without an account—data stays on this device until you sign in. After you sign in,
+          open Account and tap the settings icon to complete{' '}
+          <Text style={{ fontWeight: '800', color: c.text }}>Edit profile</Text> (gender, body weight,
+          birth year, and optional fields). Global rankings use a separate on/off switch on Account.
         </Text>
 
         {!backendReady ? (
