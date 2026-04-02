@@ -101,6 +101,55 @@ export function runInitialSetup(db: DbSync): void {
     db.runSync("INSERT INTO sync_meta (key, value) VALUES ('seeded_exercises', '1')");
   }
   ensureDefaultCardioExercise(db);
+  seedDefaultWorkoutRoutines(db);
+}
+
+/** Preset routines (exercise names must match seeded exercises). One-time per device. */
+function seedDefaultWorkoutRoutines(d: DbSync): void {
+  const done = d.getFirstSync<{ value: string }>(
+    "SELECT value FROM sync_meta WHERE key = 'seeded_workout_routines_v1'"
+  );
+  if (done) return;
+
+  const idsFor = (names: string[]): string[] | null => {
+    const out: string[] = [];
+    for (const n of names) {
+      const row = d.getFirstSync<{ id: string }>(
+        'SELECT id FROM exercises WHERE name = ? LIMIT 1',
+        [n]
+      );
+      if (!row) return null;
+      out.push(row.id);
+    }
+    return out;
+  };
+
+  const presets: { name: string; names: string[] }[] = [
+    { name: 'Push day', names: ['Bench press', 'Overhead press', 'Lat pulldown', 'Plank'] },
+    { name: 'Pull day', names: ['Pull-up', 'Row', 'Lat pulldown', 'Romanian deadlift'] },
+    { name: 'Leg day', names: ['Squat', 'Leg press', 'Romanian deadlift', 'Run / treadmill'] },
+    { name: 'Full body', names: ['Squat', 'Bench press', 'Row', 'Deadlift'] },
+  ];
+
+  const now = new Date().toISOString();
+  for (const p of presets) {
+    const ids = idsFor(p.names);
+    if (!ids) continue;
+    const exists = d.getFirstSync<{ id: string }>(
+      'SELECT id FROM workout_templates WHERE name = ? AND deleted_at IS NULL LIMIT 1',
+      [p.name]
+    );
+    if (exists) continue;
+    const id = randomUUID();
+    d.runSync(
+      `INSERT INTO workout_templates (id, name, exercise_ids, created_at, dirty)
+       VALUES (?, ?, ?, ?, 0)`,
+      [id, p.name, JSON.stringify(ids), now]
+    );
+  }
+  d.runSync(
+    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('seeded_workout_routines_v1', '1')"
+  );
 }
 
 function seedDefaultExercises(d: DbSync): void {

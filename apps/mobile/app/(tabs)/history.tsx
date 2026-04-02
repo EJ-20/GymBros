@@ -1,8 +1,6 @@
 import { useColors } from '@/src/hooks/useColors';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
-import { volumeKgToDisplayNumber, volumeUnitSuffix } from '@/src/lib/weightUnits';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
 import * as repo from '@/src/db/workoutRepo';
 import { deleteSessionFromCloud } from '@/src/sync/syncEngine';
@@ -34,7 +32,6 @@ function formatSessionDateParts(iso: string): { date: string; time: string } {
 export default function HistoryScreen() {
   const c = useColors();
   const { user, backendReady, localDataVersion } = useAuth();
-  const { unit } = useWeightUnit();
   const showAlert = useAppAlert();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
 
@@ -44,11 +41,10 @@ export default function HistoryScreen() {
 
   useFocusEffect(useCallback(() => reload(), [reload, localDataVersion]));
 
-  const totalVolumeKg = useMemo(
-    () => sessions.reduce((sum, s) => sum + repo.sessionVolumeKg(s.id), 0),
+  const totalSetsInList = useMemo(
+    () => sessions.reduce((sum, s) => sum + repo.sessionSetCount(s.id), 0),
     [sessions]
   );
-  const totalVolumeDisplay = volumeKgToDisplayNumber(totalVolumeKg, unit);
 
   const confirmDelete = (item: WorkoutSession) => {
     showAlert(
@@ -86,10 +82,9 @@ export default function HistoryScreen() {
       keyExtractor={(s) => s.id}
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text style={[styles.kicker, { color: c.textMuted }]}>History</Text>
           <Text style={[styles.title, { color: c.text }]}>Past sessions</Text>
           <Text style={[styles.sub, { color: c.textMuted }]}>
-            Volume, duration, RPE, and notes from every completed workout.
+            Duration, sets, RPE, and notes from every completed workout.
           </Text>
           {sessions.length > 0 ? (
             <View style={[styles.summaryStrip, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -100,15 +95,9 @@ export default function HistoryScreen() {
               </View>
               <View style={[styles.summaryDivider, { backgroundColor: c.border }]} />
               <View style={styles.summaryItem}>
-                <Ionicons name="bar-chart-outline" size={18} color={c.tint} />
-                <Text style={[styles.summaryValue, { color: c.text }]}>
-                  {totalVolumeDisplay >= 1000
-                    ? `${(totalVolumeDisplay / 1000).toFixed(1)}k`
-                    : totalVolumeDisplay}
-                </Text>
-                <Text style={[styles.summaryLabel, { color: c.textMuted }]}>
-                  {volumeUnitSuffix(unit)} total
-                </Text>
+                <Ionicons name="repeat-outline" size={18} color={c.tint} />
+                <Text style={[styles.summaryValue, { color: c.text }]}>{totalSetsInList}</Text>
+                <Text style={[styles.summaryLabel, { color: c.textMuted }]}>sets logged</Text>
               </View>
             </View>
           ) : null}
@@ -124,13 +113,14 @@ export default function HistoryScreen() {
           </View>
           <Text style={[styles.emptyTitle, { color: c.text }]}>No history yet</Text>
           <Text style={[styles.emptySub, { color: c.textMuted }]}>
-            Finish a workout on the Workout tab — sessions show up here with duration, volume, RPE, and
+            Finish a workout on the Workout tab — sessions show up here with duration, sets, RPE, and
             notes.
           </Text>
         </View>
       }
       renderItem={({ item, index }) => {
-        const volDisplay = volumeKgToDisplayNumber(repo.sessionVolumeKg(item.id), unit);
+        const setCount = repo.sessionSetCount(item.id);
+        const exerciseCount = repo.sessionDistinctExerciseCount(item.id);
         const mins = item.endedAt
           ? Math.round(
               (new Date(item.endedAt).getTime() - new Date(item.startedAt).getTime()) / 60000
@@ -168,9 +158,12 @@ export default function HistoryScreen() {
                   <Text style={[styles.metaText, { color: c.text }]}>{mins} min</Text>
                 </View>
                 <View style={[styles.metaChip, { backgroundColor: c.background }]}>
-                  <Ionicons name="barbell-outline" size={16} color={c.tint} />
+                  <Ionicons name="layers-outline" size={16} color={c.tint} />
                   <Text style={[styles.metaText, { color: c.text }]}>
-                    {volDisplay.toLocaleString()} {volumeUnitSuffix(unit)}
+                    {setCount} set{setCount === 1 ? '' : 's'}
+                    {exerciseCount > 0
+                      ? ` · ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}`
+                      : ''}
                   </Text>
                 </View>
                 {item.perceivedExertion != null ? (

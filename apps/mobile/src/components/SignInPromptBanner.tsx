@@ -6,9 +6,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Link } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function SignInPromptBanner() {
   const c = useColors();
+  const insets = useSafeAreaInsets();
   const { user, loading, backendReady } = useAuth();
   const [dismissed, setDismissed] = useState(true);
 
@@ -30,7 +32,16 @@ export function SignInPromptBanner() {
   if (loading || user || !backendReady || dismissed) return null;
 
   return (
-    <View style={[styles.wrap, { backgroundColor: c.card, borderBottomColor: c.border }]}>
+    <View
+      style={[
+        styles.wrap,
+        {
+          backgroundColor: c.card,
+          borderBottomColor: c.border,
+          paddingTop: insets.top,
+        },
+      ]}
+    >
       <View style={[styles.accent, { backgroundColor: c.tint }]} />
       <View style={styles.inner}>
         <Ionicons name="cloud-outline" size={22} color={c.tint} style={{ marginRight: 12 }} />

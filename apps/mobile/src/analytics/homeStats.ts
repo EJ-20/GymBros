@@ -45,9 +45,9 @@ function inRollingWindow(endedAt: string, now: number, startOffsetMs: number, en
 }
 
 export type HomeDashboardStats = {
-  last7: { sessions: number; volumeKg: number; totalMin: number };
-  prev7: { sessions: number; volumeKg: number };
-  last30: { sessions: number; volumeKg: number };
+  last7: { sessions: number; totalSets: number; totalMin: number };
+  prev7: { sessions: number; totalSets: number };
+  last30: { sessions: number; totalSets: number };
   streakDays: number;
   allTimeCompleted: number;
   topExerciseLast7: { name: string; setCount: number } | null;
@@ -67,21 +67,21 @@ export function getHomeDashboardStats(): HomeDashboardStats {
   );
   const last30 = completed.filter((s) => inRollingWindow(s.endedAt!, now, 0, 30 * MS_DAY));
 
-  let vol7 = 0;
+  let sets7 = 0;
   let min7 = 0;
   for (const s of last7) {
-    vol7 += repo.sessionVolumeKg(s.id);
+    sets7 += repo.sessionSetCount(s.id);
     const end = new Date(s.endedAt!).getTime();
     const start = new Date(s.startedAt).getTime();
     min7 += Math.max(0, Math.round((end - start) / 60_000));
   }
-  let volPrev7 = 0;
+  let setsPrev7 = 0;
   for (const s of prev7) {
-    volPrev7 += repo.sessionVolumeKg(s.id);
+    setsPrev7 += repo.sessionSetCount(s.id);
   }
-  let vol30 = 0;
+  let sets30 = 0;
   for (const s of last30) {
-    vol30 += repo.sessionVolumeKg(s.id);
+    sets30 += repo.sessionSetCount(s.id);
   }
 
   const exerciseSetCounts = new Map<string, number>();
@@ -99,9 +99,9 @@ export function getHomeDashboardStats(): HomeDashboardStats {
   }
 
   return {
-    last7: { sessions: last7.length, volumeKg: vol7, totalMin: min7 },
-    prev7: { sessions: prev7.length, volumeKg: volPrev7 },
-    last30: { sessions: last30.length, volumeKg: vol30 },
+    last7: { sessions: last7.length, totalSets: sets7, totalMin: min7 },
+    prev7: { sessions: prev7.length, totalSets: setsPrev7 },
+    last30: { sessions: last30.length, totalSets: sets30 },
     streakDays: workoutStreakDays(completed),
     allTimeCompleted: repo.countCompletedSessions(),
     topExerciseLast7,

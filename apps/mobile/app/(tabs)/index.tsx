@@ -1,6 +1,5 @@
 import { getHomeDashboardStats } from '@/src/analytics/homeStats';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
@@ -16,8 +15,6 @@ import { I18nManager, Pressable, ScrollView, StyleSheet, Text, View } from 'reac
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HomeDashboardStats } from '@/src/analytics/homeStats';
-import { volumeKgToDisplayNumber, volumeUnitSuffix } from '@/src/lib/weightUnits';
-
 function formatPct(p: number): string {
   return Number.isInteger(p) ? String(p) : p.toFixed(1);
 }
@@ -117,7 +114,6 @@ export default function HomeScreen() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const { user, backendReady, localDataVersion } = useAuth();
-  const { unit } = useWeightUnit();
   const [stats, setStats] = useState<HomeDashboardStats>(() => getHomeDashboardStats());
   const [bench, setBench] = useState<GlobalBenchmarkPayload | null>(null);
   const [benchLoadError, setBenchLoadError] = useState<string | null>(null);
@@ -156,9 +152,8 @@ export default function HomeScreen() {
   const sessionDelta = deltaLabel(last7.sessions, prev7.sessions, 'session');
   const leadershipTile = leadershipLoadTile(bench, benchLoadError, user, backendReady);
   const sessionsRank = sessionsRankWide(bench, benchLoadError, user, backendReady);
-  const lastSessVolDisplay = lastSession
-    ? volumeKgToDisplayNumber(repo.sessionVolumeKg(lastSession.id), unit)
-    : 0;
+  const lastSetCount = lastSession ? repo.sessionSetCount(lastSession.id) : 0;
+  const lastExerciseCount = lastSession ? repo.sessionDistinctExerciseCount(lastSession.id) : 0;
 
   const lastDurationMin =
     lastSession?.endedAt != null
@@ -278,8 +273,11 @@ export default function HomeScreen() {
               <Text style={[styles.sectionLabel, { color: c.textMuted, marginBottom: 0 }]}>Last session</Text>
               <Text style={{ color: c.textMuted, fontSize: 13 }}>{formatCompactDate(lastSession.startedAt)}</Text>
             </View>
-            <Text style={[styles.lastVolume, { color: c.text }]}>
-              {lastSessVolDisplay.toLocaleString()} {volumeUnitSuffix(unit)}
+            <Text style={[styles.lastSessionHeadline, { color: c.text }]}>
+              {lastSetCount} set{lastSetCount === 1 ? '' : 's'}
+              {lastExerciseCount > 0
+                ? ` · ${lastExerciseCount} exercise${lastExerciseCount === 1 ? '' : 's'}`
+                : ''}
               {lastSession.perceivedExertion != null ? ` · RPE ${lastSession.perceivedExertion}` : ''}
             </Text>
             <Text style={{ color: c.textMuted, fontSize: 14 }}>
@@ -479,7 +477,7 @@ const styles = StyleSheet.create({
   insightTitle: { fontSize: 18, fontWeight: '700' },
   lastCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginTop: 6, gap: 6 },
   lastHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  lastVolume: { fontSize: 17, fontWeight: '700' },
+  lastSessionHeadline: { fontSize: 17, fontWeight: '700' },
   emptyHint: {
     marginTop: 8,
     padding: 16,

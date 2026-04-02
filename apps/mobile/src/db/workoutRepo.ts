@@ -264,6 +264,24 @@ export function sessionVolumeKg(sessionId: string): number {
   return Number(row?.v ?? 0);
 }
 
+export function sessionSetCount(sessionId: string): number {
+  const d = getDb();
+  const row = d.getFirstSync<{ c: number }>(
+    'SELECT COUNT(*) as c FROM set_logs WHERE session_id = ?',
+    [sessionId]
+  );
+  return Number(row?.c ?? 0);
+}
+
+export function sessionDistinctExerciseCount(sessionId: string): number {
+  const d = getDb();
+  const row = d.getFirstSync<{ c: number }>(
+    'SELECT COUNT(DISTINCT exercise_id) as c FROM set_logs WHERE session_id = ?',
+    [sessionId]
+  );
+  return Number(row?.c ?? 0);
+}
+
 export function listDirtyRows(): {
   exercises: Record<string, unknown>[];
   sessions: Record<string, unknown>[];

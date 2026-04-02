@@ -11,6 +11,7 @@ import type { ComponentType, PropsWithChildren } from 'react';
 import { useEffect, useState } from 'react';
 import { useColorScheme, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 /** RNGH types omit `children` under React 19 until a matching @types/rn release. */
 function GestureRoot({ children }: PropsWithChildren) {
@@ -60,48 +61,50 @@ export default function RootLayout() {
 
   return (
     <GestureRoot>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <AuthProvider>
-          <WeightUnitProvider>
-          <AppAlertProvider>
-          <ToastProvider>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: true }} />
-            <Stack.Screen
-              name="routine-builder"
-              options={{ headerShown: true, title: 'Routine' }}
-            />
-            <Stack.Screen
-              name="profile"
-              options={{
-                title: 'Account',
-                presentation: 'modal',
-                headerShown: true,
-              }}
-            />
-            <Stack.Screen
-              name="profile-edit"
-              options={{
-                title: 'Edit profile',
-                presentation: 'modal',
-                headerShown: true,
-              }}
-            />
-            <Stack.Screen
-              name="sign-in"
-              options={{
-                title: 'Sign in',
-                presentation: 'modal',
-                headerShown: true,
-              }}
-            />
-          </Stack>
-          </ToastProvider>
-          </AppAlertProvider>
-          </WeightUnitProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <SafeAreaProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <AuthProvider>
+            <WeightUnitProvider>
+              <AppAlertProvider>
+                <ToastProvider>
+                  <Stack>
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: true }} />
+                    <Stack.Screen
+                      name="routine-builder"
+                      options={{ headerShown: true, title: 'Routine' }}
+                    />
+                    <Stack.Screen
+                      name="profile"
+                      options={{
+                        title: 'Account',
+                        presentation: 'modal',
+                        headerShown: true,
+                      }}
+                    />
+                    <Stack.Screen
+                      name="profile-edit"
+                      options={{
+                        title: 'Edit profile',
+                        presentation: 'modal',
+                        headerShown: true,
+                      }}
+                    />
+                    <Stack.Screen
+                      name="sign-in"
+                      options={{
+                        title: 'Sign in',
+                        presentation: 'modal',
+                        headerShown: true,
+                      }}
+                    />
+                  </Stack>
+                </ToastProvider>
+              </AppAlertProvider>
+            </WeightUnitProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
     </GestureRoot>
   );
 }

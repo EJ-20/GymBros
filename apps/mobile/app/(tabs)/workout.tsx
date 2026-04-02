@@ -34,6 +34,9 @@ import {
 } from 'react-native';
 import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros/shared';
 
+/** Built-in preset names — shown first on the idle Workout screen when present. */
+const PRESET_ROUTINE_NAMES = ['Push day', 'Pull day', 'Leg day', 'Full body'] as const;
+
 function setDeleteSummary(s: SetLog, unit: WeightUnit): string {
   const w =
     s.weightKg != null
@@ -69,7 +72,6 @@ export default function WorkoutScreen() {
   const [setsByExercise, setSetsByExercise] = useState<Record<string, SetLog[]>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
-  const [pickRoutineOpen, setPickRoutineOpen] = useState(false);
   const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
   const [saveRoutineName, setSaveRoutineName] = useState('');
   const [endWorkoutOpen, setEndWorkoutOpen] = useState(false);
@@ -82,7 +84,20 @@ export default function WorkoutScreen() {
   /** When set, shows chips to jump through a saved routine (in-memory for this session). */
   const [routineExerciseIds, setRoutineExerciseIds] = useState<string[] | null>(null);
   const exercises = repo.listExercises();
-  const templates = repo.listTemplates();
+  const sortedIdleTemplates = useMemo(() => {
+    const list = repo.listTemplates();
+    const presetSet = new Set<string>([...PRESET_ROUTINE_NAMES]);
+    const byName = new Map(list.map((t) => [t.name, t]));
+    const ordered: WorkoutTemplate[] = [];
+    for (const n of PRESET_ROUTINE_NAMES) {
+      const t = byName.get(n);
+      if (t) ordered.push(t);
+    }
+    for (const t of list) {
+      if (!presetSet.has(t.name)) ordered.push(t);
+    }
+    return ordered;
+  }, [localDataVersion]);
 
   const currentSessionId = () => session?.id ?? repo.getActiveSession()?.id ?? '';
 
@@ -185,7 +200,6 @@ export default function WorkoutScreen() {
   };
 
   const startFromTemplate = (t: WorkoutTemplate) => {
-    setPickRoutineOpen(false);
     if (repo.getActiveSession()) {
       showAlert('Workout in progress', 'End your current session first.');
       return;
@@ -339,83 +353,70 @@ export default function WorkoutScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={[styles.idleKicker, { color: c.textMuted }]}>Workout</Text>
-          <Text style={[styles.idleTitle, { color: c.text }]}>No session yet</Text>
-          <Text style={[styles.idleSub, { color: c.textMuted }]}>
-            Start fresh, load a saved routine, or build lists under Routines.
-          </Text>
-
-          <View style={[styles.idleHero, { backgroundColor: c.card, borderColor: c.border }]}>
-            <View style={[styles.idleHeroAccent, { backgroundColor: c.tint }]} />
-            <View style={styles.idleHeroInner}>
-              <Pressable
-                style={[styles.idlePrimary, { backgroundColor: c.tint }]}
-                onPress={start}
-              >
-                <Ionicons name="barbell-outline" size={22} color={c.onTintLight} />
-                <Text style={[styles.idlePrimaryText, { color: c.onTintLight }]}>Start workout</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.idleSecondary, { borderColor: c.tint, backgroundColor: c.background }]}
-                onPress={() => setPickRoutineOpen(true)}
-              >
-                <Ionicons name="list-outline" size={20} color={c.tint} />
-                <Text style={{ color: c.tint, fontWeight: '700', fontSize: 16 }}>Start from routine</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => router.push('/routines')}
-                style={styles.idleLinkRow}
-              >
-                <Ionicons name="create-outline" size={18} color={c.textMuted} />
-                <Text style={{ color: c.tint, fontWeight: '600', marginLeft: 6 }}>Manage routines</Text>
-                <Ionicons name="chevron-forward" size={16} color={c.tint} style={{ marginLeft: 2 }} />
-              </Pressable>
+          <View style={styles.idleHeaderRow}>
+            <View style={styles.idleHeaderText}>
+              <Text style={[styles.idleTitle, { color: c.text }]}>No session yet</Text>
+              <Text style={[styles.idleSub, { color: c.textMuted }]}>
+                Tap + for an empty session, or tap a routine to load exercises.
+              </Text>
             </View>
+            <Pressable
+              onPress={start}
+              accessibilityLabel="Start empty workout"
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.idleStartFab,
+                {
+                  backgroundColor: c.tint,
+                  shadowColor: c.text,
+                },
+                pressed ? styles.idleStartFabPressed : null,
+              ]}
+            >
+              <Ionicons name="add" size={28} color={c.onTintLight} />
+            </Pressable>
           </View>
-        </ScrollView>
 
-        <Modal visible={pickRoutineOpen} animationType="slide" transparent>
-          <View style={[styles.modalBackdrop, { backgroundColor: c.overlay }]}>
-            <View style={[styles.modalCard, { backgroundColor: c.card, borderColor: c.border }]}>
-              <View style={styles.modalHeaderRow}>
-                <Ionicons name="albums-outline" size={22} color={c.tint} />
-                <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
-                  Pick a routine
-                </Text>
-              </View>
-              <FlatList
-                data={templates}
-                keyExtractor={(item) => item.id}
-                style={{ maxHeight: '65%' }}
-                ListEmptyComponent={
-                  <Text style={{ color: c.textMuted, marginBottom: 12, lineHeight: 20 }}>
-                    No routines yet. Create one under Manage routines.
+          <Text style={[styles.idleSectionLabel, { color: c.textMuted }]}>Routines</Text>
+          {sortedIdleTemplates.length > 0 ? (
+            <View style={styles.idleRoutineGrid}>
+              {sortedIdleTemplates.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => startFromTemplate(item)}
+                  style={({ pressed }) => [
+                    styles.idleRoutineTile,
+                    {
+                      backgroundColor: c.card,
+                      borderColor: c.border,
+                      opacity: pressed ? 0.92 : 1,
+                    },
+                  ]}
+                >
+                  <View style={[styles.idleRoutineIcon, { backgroundColor: c.background }]}>
+                    <Ionicons name="list-outline" size={20} color={c.tint} />
+                  </View>
+                  <Text style={[styles.idleRoutineName, { color: c.text }]} numberOfLines={2}>
+                    {item.name}
                   </Text>
-                }
-                renderItem={({ item }) => (
-                  <Pressable
-                    onPress={() => startFromTemplate(item)}
-                    style={[styles.pickRow, { borderBottomColor: c.border }]}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: c.text, fontWeight: '700', fontSize: 16 }}>{item.name}</Text>
-                      <Text style={{ color: c.textMuted, fontSize: 13, marginTop: 2 }}>
-                        {item.exerciseIds.length} exercise{item.exerciseIds.length === 1 ? '' : 's'}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
-                  </Pressable>
-                )}
-              />
-              <Pressable
-                onPress={() => setPickRoutineOpen(false)}
-                style={[styles.modalCancelBtn, { backgroundColor: c.background }]}
-              >
-                <Text style={{ color: c.text, fontWeight: '600' }}>Cancel</Text>
-              </Pressable>
+                  <Text style={[styles.idleRoutineMeta, { color: c.textMuted }]}>
+                    {item.exerciseIds.length} exercise{item.exerciseIds.length === 1 ? '' : 's'}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
-          </View>
-        </Modal>
+          ) : (
+            <Text style={[styles.idleEmptyRoutines, { color: c.textMuted }]}>
+              No routines yet. Create one under Manage routines.
+            </Text>
+          )}
+
+          <Pressable onPress={() => router.push('/routines')} style={styles.idleLinkRow}>
+            <Ionicons name="create-outline" size={18} color={c.textMuted} />
+            <Text style={{ color: c.tint, fontWeight: '600', marginLeft: 6 }}>Manage routines</Text>
+            <Ionicons name="chevron-forward" size={16} color={c.tint} style={{ marginLeft: 2 }} />
+          </Pressable>
+        </ScrollView>
       </View>
     );
   }
@@ -818,41 +819,63 @@ export default function WorkoutScreen() {
 
 const styles = StyleSheet.create({
   idleRoot: { flex: 1 },
-  idleScroll: { padding: 24, paddingBottom: 40 },
+  /** Match History tab header: horizontal 20, top 8 */
+  idleScroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 },
   idleKicker: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+  idleHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingBottom: 4,
+  },
+  idleHeaderText: { flex: 1, minWidth: 0 },
   idleTitle: { fontSize: 28, fontWeight: '800', marginTop: 6, letterSpacing: -0.3 },
   idleSub: { fontSize: 15, lineHeight: 22, marginTop: 8 },
-  idleHero: {
-    marginTop: 24,
+  idleStartFab: {
+    width: 56,
+    height: 56,
     borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  idleStartFabPressed: { opacity: 0.92, transform: [{ scale: 0.97 }] },
+  idleSectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  idleRoutineGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  idleRoutineTile: {
+    width: '48%',
+    flexGrow: 1,
+    minWidth: '47%',
+    borderRadius: 14,
     borderWidth: 1,
-    overflow: 'hidden',
-    flexDirection: 'row',
+    padding: 12,
+    gap: 6,
   },
-  idleHeroAccent: { width: 4 },
-  idleHeroInner: { flex: 1, padding: 18, gap: 12 },
-  idlePrimary: {
-    flexDirection: 'row',
+  idleRoutineIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 16,
-    borderRadius: 12,
   },
-  idlePrimaryText: { fontWeight: '800', fontSize: 17 },
-  idleSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 2,
-  },
+  idleRoutineName: { fontWeight: '700', fontSize: 15, lineHeight: 20 },
+  idleRoutineMeta: { fontSize: 12, fontWeight: '600' },
+  idleEmptyRoutines: { lineHeight: 20, marginBottom: 8 },
   idleLinkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 20,
     paddingVertical: 8,
   },
 
