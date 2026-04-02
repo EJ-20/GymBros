@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -6,9 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="GymBros helps you log workouts fast, see your week at a glance, save routines, compare with friends, see optional global and regional training benchmarks, and chat with a training coach."
+      content="GymBros makes training feel better. Log your workouts effortlessly, stay consistent, and see your progress come to life."
     />
-    <title>GymBros — Your workouts, tracked the easy way</title>
+    <title>GymBros — Train harder. Stay consistent. See results.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -22,254 +23,229 @@
     <div class="bg-grid" aria-hidden="true"></div>
     <div class="bg-glow" aria-hidden="true"></div>
 
-    <header class="site-header">
-      <div class="container header-inner">
-        <a class="logo" href="#" aria-label="GymBros home">
-          <img class="logo-img" src="/gymbros-mark.svg" alt="" width="40" height="40" />
-          <span class="logo-word">GymBros</span>
-        </a>
-        <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav">
-          <span class="nav-toggle-bar"></span>
-          <span class="visually-hidden">Menu</span>
-        </button>
-        <nav id="site-nav" class="site-nav" aria-label="Primary">
-          <a href="#features">What you can do</a>
-          <a href="#use-cases">Who it’s for</a>
-          <a href="#privacy">Privacy</a>
-          <a class="nav-cta nav-cta--muted" href="https://github.com/EJ-20/GymBros" target="_blank" rel="noopener noreferrer"
-            >Developers</a
-          >
-        </nav>
-      </div>
-    </header>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="logo" href="#" aria-label="GymBros home">
+      <img class="logo-img" src="/gymbros-mark.svg" alt="" width="40" height="40" />
+      <span class="logo-word">GymBros</span>
+    </a>
+    <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav">
+      <span class="nav-toggle-bar"></span>
+      <span class="visually-hidden">Menu</span>
+    </button>
+    <nav id="site-nav" class="site-nav" aria-label="Primary">
+      <a href="#features">Why it’s different</a>
+      <a href="#use-cases">Who it’s for</a>
+      <a href="#privacy">Privacy</a>
+      <a class="nav-cta nav-cta--muted" href="https://github.com/EJ-20/GymBros" target="_blank" rel="noopener noreferrer"
+        >Developers</a
+      >
+    </nav>
+  </div>
+</header>
 
-    <main id="main">
-      <section class="hero">
-        <div class="container hero-inner">
-          <p class="hero-eyebrow">Simple logging · Friends &amp; coach when you want them</p>
-          <h1 class="hero-title">
-            Log lifts without the hassle.<br />
-            <span class="gradient-text">See progress. Train with your crew.</span>
-          </h1>
-          <p class="hero-lede">
-            GymBros is built for real gym sessions: quick taps between sets, a clear picture of your week, saved
-            routines you can reuse, and optional extras like backing up your log, comparing with friends, seeing how
-            you rank among similar athletes globally or in your region, and asking a coach-style assistant about
-            training.
+<main id="main">
+  <section class="hero">
+    <div class="container hero-inner">
+      <p class="hero-eyebrow">Built for real workouts · No friction, no distractions</p>
+      <h1 class="hero-title">
+        Focus on the lift.<br />
+        <span class="gradient-text">We’ll handle the rest.</span>
+      </h1>
+      <p class="hero-lede">
+        GymBros is made for how people actually train. No complicated setup, no wasted time—just open the app,
+        log your sets, and stay locked in. Over time, your progress builds into something real you can see, track,
+        and be proud of.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#features">Explore the experience</a>
+      </div>
+      <ul class="hero-pills" role="list">
+        <li>Works wherever you train</li>
+        <li>Fast enough between sets</li>
+        <li>Start instantly, no account needed</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <div class="container">
+      <header class="section-head">
+        <h2>Designed for the way you train</h2>
+        <p>
+          Every part of GymBros is built to keep you focused, motivated, and consistent—without getting in your way.
+        </p>
+      </header>
+      <div class="feature-grid">
+        <article class="feature-card feature-card--wide">
+          <div class="feature-icon" aria-hidden="true">🔥</div>
+          <h3>Your training, at a glance</h3>
+          <p>
+            Open the app and instantly feel where you’re at. See your consistency, your momentum, and how your
+            week is shaping up—all in one clean view.
           </p>
-          <div class="hero-actions">
-            <a class="btn btn-primary" href="#features">See what the app does</a>
-          </div>
-          <ul class="hero-pills" role="list">
-            <li>Phone, tablet &amp; web</li>
-            <li>Works at the gym—even with spotty signal</li>
-            <li>No account required to start training</li>
-          </ul>
-        </div>
-      </section>
-
-      <section id="features" class="section">
-        <div class="container">
-          <header class="section-head">
-            <h2>What you can do in the app</h2>
-            <p>
-              Everything below is designed around how people actually train—not around filling out endless forms.
-            </p>
-          </header>
-          <div class="feature-grid">
-            <article class="feature-card feature-card--wide">
-              <div class="feature-icon" aria-hidden="true">☀️</div>
-              <h3>Your Home snapshot</h3>
-              <p>
-                Open the app and instantly see how your week is going: sessions completed, training volume compared to
-                last week, day streaks, and when you last trained. If you left a workout half-finished, you can jump
-                back in and keep logging.
-              </p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">⚡</div>
-              <h3>Log sets in a few taps</h3>
-              <p>
-                The workout screen is meant for sweaty hands and short breaks between sets—add exercises, record
-                weight and reps, and move on without fighting the interface.
-              </p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">📆</div>
-              <h3>History you can browse</h3>
-              <p>
-                Look back at past sessions whenever you want to remember what you lifted, spot patterns, or prove to
-                yourself how far you’ve come.
-              </p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">📋</div>
-              <h3>Saved routines</h3>
-              <p>
-                Build workout templates with the exercises in the order you like. Start a new session from a saved
-                routine, or turn a great workout you just did into a routine for next week.
-              </p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">🔒</div>
-              <h3>Optional sign-in &amp; backup</h3>
-              <p>
-                Use the app fully on your own device with no login. When you’re ready, you can create an account and
-                sync so your training history isn’t stuck on one phone—especially handy if you upgrade or switch
-                devices.
-              </p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">🌍</div>
-              <h3>Global &amp; regional rankings</h3>
-              <p>
-                Opt in to anonymous benchmarks: we group you with people in the same benchmark sex category, similar
-                age and body weight, and—when you both add them—similar height and years of training. Then we show
-                where your last week lands—weekly load vs weight, session frequency, and cardio time from timed runs
-                (e.g. treadmill). See “top X%” style insights globally and, with a country code, in your region. No
-                public leaderboards with your name on them.
-              </p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">👥</div>
-              <h3>Compare with friends—on your terms</h3>
-              <p>
-                Connect with people you actually lift with. You each choose what to share (like weekly volume, how
-                often you trained, or a “best lift” label). Nothing is public unless you want it that way—friends only,
-                with clear privacy controls.
-              </p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-icon" aria-hidden="true">💬</div>
-              <h3>Training coach chat</h3>
-              <p>
-                Ask questions about programming, how hard to push a set, or recovery—like texting a knowledgeable
-                training partner. When you’re signed in, the coach can use context from your recent sessions so answers
-                feel relevant to what you’re actually doing.
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section id="use-cases" class="section section--alt">
-        <div class="container">
-          <header class="section-head">
-            <h2>Who GymBros is for</h2>
-            <p>Same app—whether you train alone, follow a plan, or like a little friendly competition.</p>
-          </header>
-          <div class="use-case-row">
-            <article class="use-case">
-              <span class="use-case-num">01</span>
-              <h3>You just want a dependable log</h3>
-              <p>
-                You’re not chasing gadgets—you want to record sets, see what you did last time, and train even when
-                the gym’s Wi-Fi is useless. No pressure to connect with anyone else.
-              </p>
-            </article>
-            <article class="use-case">
-              <span class="use-case-num">02</span>
-              <h3>You repeat the same days each week</h3>
-              <p>
-                You run a structured split and like knowing Monday is always “leg day” with the same flow. Save it once
-                as a routine, start from there every time, and keep your history in one place—including after a new
-                phone if you turn on backup.
-              </p>
-            </article>
-            <article class="use-case">
-              <span class="use-case-num">03</span>
-              <h3>You and your friends motivate each other</h3>
-              <p>
-                You want to see how your crew is doing without posting workouts to the whole internet. Share only the
-                stats you’re comfortable with, with people you’ve accepted as friends—then keep the rest private.
-              </p>
-            </article>
-            <article class="use-case">
-              <span class="use-case-num">04</span>
-              <h3>You want context—not just numbers in a vacuum</h3>
-              <p>
-                You’re curious how your week stacks up for someone your size and age, or in your country. Turn on
-                benchmarks when you’re ready; there’s no public board with your name—just anonymous cohorts and
-                percentile-style readouts.
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section id="privacy" class="section">
-        <div class="container">
-          <header class="section-head">
-            <h2>Privacy, in plain language</h2>
-            <p>You stay in control of your training story.</p>
-          </header>
-          <div class="trust-panel">
-            <div class="trust-item">
-              <span class="trust-icon" aria-hidden="true">🏠</span>
-              <div>
-                <h3>Your phone first</h3>
-                <p>
-                  Your workouts live on your device until you choose to sign in and back up. You can train for weeks
-                  without ever creating an account.
-                </p>
-              </div>
-            </div>
-            <div class="trust-item">
-              <span class="trust-icon" aria-hidden="true">🤝</span>
-              <div>
-                <h3>Friends only for friend comparisons</h3>
-                <p>
-                  Friend stats aren’t a public feed. You connect with specific people, and you each decide which
-                  numbers they can see.
-                </p>
-              </div>
-            </div>
-            <div class="trust-item">
-              <span class="trust-icon" aria-hidden="true">📊</span>
-              <div>
-                <h3>Global stats are anonymous cohorts</h3>
-                <p>
-                  Rankings use your synced training plus a benchmark group (sex category), age, body weight, optional
-                  height and training history, and optional country. You opt in explicitly. We compare you to other
-                  opted-in users in a similar bucket—percentiles and “top X%” style readouts, not named leaderboards.
-                </p>
-              </div>
-            </div>
-            <div class="trust-item">
-              <span class="trust-icon" aria-hidden="true">🧠</span>
-              <div>
-                <h3>Coach uses your context when you’re signed in</h3>
-                <p>
-                  The in-app coach can read a summary of your recent training so answers match your situation—not
-                  random internet advice. That only applies when you’re logged in and using the feature.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="section cta-section">
-        <div class="container">
-          <div class="cta-card">
-            <h2>Train your way</h2>
-            <p>
-              Whether you log alone or with friends, GymBros is built to stay out of your way—so you can focus on the
-              next set, not the next menu.
-            </p>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <footer class="site-footer">
-      <div class="container footer-inner">
-        <span class="footer-brand">GymBros</span>
-        <span class="footer-note">Not medical advice. Train smart.</span>
-        <a href="https://github.com/EJ-20/GymBros" target="_blank" rel="noopener noreferrer">Developers</a>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">⚡</div>
+          <h3>Log without breaking your flow</h3>
+          <p>
+            No friction. No thinking. Just tap, log, and get back to your set. The app moves as fast as you do.
+          </p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">📆</div>
+          <h3>Your progress, clearly visible</h3>
+          <p>
+            Look back and actually *feel* your progress. Every workout adds to your story—and you can see it unfold.
+          </p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">📋</div>
+          <h3>Stay consistent, effortlessly</h3>
+          <p>
+            Keep your routines tight and repeat what works. No need to rebuild your workouts every time.
+          </p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">🔒</div>
+          <h3>Your data, your control</h3>
+          <p>
+            Train privately if you want. When you're ready, back everything up and take your progress anywhere.
+          </p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">🌍</div>
+          <h3>See where you stand</h3>
+          <p>
+            Ever wondered how you compare? Get a sense of where you’re at—without turning your training into a
+            public competition.
+          </p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">👥</div>
+          <h3>Train with your circle</h3>
+          <p>
+            Stay connected with the people who push you. Share what you want, keep what you don’t—it’s all up to you.
+          </p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">💬</div>
+          <h3>Guidance when you need it</h3>
+          <p>
+            Got questions mid-training? Get quick, relevant answers that actually fit what you’re doing.
+          </p>
+        </article>
       </div>
-    </footer>
+    </div>
+  </section>
 
-    <script type="module" src="/src/main.js"></script>
+  <section id="use-cases" class="section section--alt">
+    <div class="container">
+      <header class="section-head">
+        <h2>Made for every kind of lifter</h2>
+        <p>However you train, GymBros adapts to you—not the other way around.</p>
+      </header>
+      <div class="use-case-row">
+        <article class="use-case">
+          <span class="use-case-num">01</span>
+          <h3>You just want to train</h3>
+          <p>
+            No distractions, no unnecessary features—just a clean way to stay consistent and focused every session.
+          </p>
+        </article>
+        <article class="use-case">
+          <span class="use-case-num">02</span>
+          <h3>You follow a routine</h3>
+          <p>
+            You know what works for you. GymBros keeps it organized, so you can keep showing up and executing.
+          </p>
+        </article>
+        <article class="use-case">
+          <span class="use-case-num">03</span>
+          <h3>You train with others</h3>
+          <p>
+            A little competition goes a long way. Stay connected with your crew and keep each other accountable.
+          </p>
+        </article>
+        <article class="use-case">
+          <span class="use-case-num">04</span>
+          <h3>You want to level up</h3>
+          <p>
+            Not just logging—understanding. See your progress in context and keep pushing forward.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy" class="section">
+    <div class="container">
+      <header class="section-head">
+        <h2>Your training stays yours</h2>
+        <p>No pressure. No exposure. Just control.</p>
+      </header>
+      <div class="trust-panel">
+        <div class="trust-item">
+          <span class="trust-icon" aria-hidden="true">🏠</span>
+          <div>
+            <h3>Start private</h3>
+            <p>
+              Your workouts stay on your device unless you choose otherwise. No accounts required.
+            </p>
+          </div>
+        </div>
+        <div class="trust-item">
+          <span class="trust-icon" aria-hidden="true">🤝</span>
+          <div>
+            <h3>Share only what matters</h3>
+            <p>
+              Connect with people you trust—and decide exactly what they can see.
+            </p>
+          </div>
+        </div>
+        <div class="trust-item">
+          <span class="trust-icon" aria-hidden="true">📊</span>
+          <div>
+            <h3>Stay anonymous in comparisons</h3>
+            <p>
+              Understand where you stand without putting yourself on display. No public leaderboards.
+            </p>
+          </div>
+        </div>
+        <div class="trust-item">
+          <span class="trust-icon" aria-hidden="true">🧠</span>
+          <div>
+            <h3>Smarter, personal insights</h3>
+            <p>
+              When you choose to connect, the app becomes more helpful—without ever overstepping.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section cta-section">
+    <div class="container">
+      <div class="cta-card">
+        <h2>Train better. Stay consistent.</h2>
+        <p>
+          GymBros is built to keep you moving forward—session after session, week after week.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <span class="footer-brand">GymBros</span>
+    <a href="https://github.com/EJ-20/GymBros" target="_blank" rel="noopener noreferrer">Developers</a>
+  </div>
+</footer>
+
+<script type="module" src="/src/main.js"></script>
+
+
   </body>
 </html>
