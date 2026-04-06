@@ -1,3 +1,25 @@
+function isReloadNavigation() {
+  const entry = performance.getEntriesByType?.('navigation')?.[0];
+  if (entry?.type === 'reload') return true;
+  if (typeof performance !== 'undefined' && performance.navigation) {
+    return performance.navigation.type === performance.navigation.TYPE_RELOAD;
+  }
+  return false;
+}
+
+function scrollToTopOnReload() {
+  if (!isReloadNavigation()) return;
+  if (window.location.hash) {
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }
+  window.scrollTo(0, 0);
+}
+
+window.addEventListener('load', scrollToTopOnReload);
+window.addEventListener('pageshow', (event) => {
+  if (!event.persisted) scrollToTopOnReload();
+});
+
 const header = document.querySelector('.site-header');
 const toggle = document.querySelector('.nav-toggle');
 const nav = document.querySelector('.site-nav');
