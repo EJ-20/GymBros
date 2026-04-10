@@ -3,6 +3,7 @@ import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
 import * as repo from '@/src/db/workoutRepo';
 import type { Exercise } from '@gymbros/shared';
+import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -133,8 +134,14 @@ export default function RoutineBuilderScreen() {
               <Pressable onPress={() => moveUp(item.index)} disabled={item.index === 0}>
                 <Text style={{ color: item.index === 0 ? c.border : c.tint }}>Up</Text>
               </Pressable>
-              <Pressable onPress={() => removeAt(item.index)} style={{ marginLeft: 12 }}>
-                <Text style={{ color: c.danger }}>Remove</Text>
+              <Pressable
+                onPress={() => removeAt(item.index)}
+                hitSlop={10}
+                accessibilityLabel="Remove exercise from routine"
+                accessibilityRole="button"
+                style={[styles.deleteIconBtn, { marginLeft: 12 }]}
+              >
+                <Ionicons name="trash-outline" size={20} color={c.danger} />
               </Pressable>
             </View>
           )}
@@ -195,6 +202,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     gap: 8,
+  },
+  deleteIconBtn: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalBackdrop: {
     flex: 1,

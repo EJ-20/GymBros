@@ -3,7 +3,7 @@ import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,7 +22,7 @@ export default function SignInScreen() {
   const c = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, loading, signIn, signUp, backendReady } = useAuth();
+  const { user, loading, signIn, backendReady } = useAuth();
   const showAlert = useAppAlert();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,34 +44,6 @@ export default function SignInScreen() {
     const { error } = await signIn(e, password);
     setBusy(false);
     if (error) showAlert('Sign in', friendlyBackendError(error.message));
-  };
-
-  const finishSignUp = async () => {
-    const e = email.trim();
-    if (!e) {
-      showAlert('Sign up', 'Enter your email.');
-      return;
-    }
-    if (password.length < 6) {
-      showAlert('Sign up', 'Password must be at least 6 characters.');
-      return;
-    }
-    setBusy(true);
-    const { error, session: newSession } = await signUp(e, password);
-    setBusy(false);
-    if (error) {
-      showAlert('Sign up', friendlyBackendError(error.message));
-      return;
-    }
-    if (newSession) {
-      showAlert('Welcome', 'You are signed in.');
-    } else {
-      showAlert(
-        'Check your email',
-        'Open the confirmation link from Supabase, then return here and sign in.\n\n' +
-          'For local testing you can turn off “Confirm email” in the Supabase dashboard (see README).'
-      );
-    }
   };
 
   if (loading) {
@@ -183,25 +155,21 @@ export default function SignInScreen() {
               )}
             </Pressable>
 
-            <Pressable
-              style={[
-                styles.secondaryBtn,
-                {
-                  borderColor: c.tint,
-                  backgroundColor: c.background,
-                  opacity: busy || !backendReady ? 0.55 : 1,
-                },
-              ]}
-              onPress={finishSignUp}
-              disabled={busy || !backendReady}
-            >
-              <Ionicons name="person-add-outline" size={22} color={c.tint} />
-              <Text style={[styles.secondaryBtnText, { color: c.tint }]}>Create account</Text>
-            </Pressable>
+            <Link href="/sign-up" asChild>
+              <Pressable
+                style={[
+                  styles.secondaryBtn,
+                  { borderColor: c.tint, backgroundColor: c.background },
+                ]}
+              >
+                <Ionicons name="person-add-outline" size={22} color={c.tint} />
+                <Text style={[styles.secondaryBtnText, { color: c.tint }]}>Create account</Text>
+              </Pressable>
+            </Link>
 
             <Text style={[styles.hint, { color: c.textMuted }]}>
-              Supabase requires at least 6 characters. Turn off email confirmation in the dashboard for
-              quick local testing.
+              Need an account? Use Create account to register with your name, email, password, and
+              confirmation.
             </Text>
           </View>
         </View>

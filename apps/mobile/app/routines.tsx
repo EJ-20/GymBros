@@ -6,6 +6,7 @@ import type { WorkoutTemplate } from '@gymbros/shared';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import {
   FlatList,
   Pressable,
@@ -78,8 +79,14 @@ export default function RoutinesScreen() {
               >
                 <Text style={{ color: c.tint, fontWeight: '600' }}>Edit</Text>
               </Pressable>
-              <Pressable onPress={() => remove(item)}>
-                <Text style={{ color: c.danger }}>Delete</Text>
+              <Pressable
+                onPress={() => remove(item)}
+                hitSlop={12}
+                accessibilityLabel="Delete routine"
+                accessibilityRole="button"
+                style={styles.deleteIconBtn}
+              >
+                <Ionicons name="trash-outline" size={20} color={c.danger} />
               </Pressable>
             </View>
           </View>
@@ -101,7 +108,12 @@ const styles = StyleSheet.create({
   empty: { textAlign: 'center', marginTop: 32, fontSize: 15 },
   card: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 10 },
   name: { fontSize: 18, fontWeight: '600' },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  deleteIconBtn: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   fab: {
     position: 'absolute',
     bottom: 24,

@@ -146,9 +146,10 @@ export default function HistoryScreen() {
                   onPress={() => confirmDelete(item)}
                   hitSlop={12}
                   accessibilityLabel="Delete workout"
-                  style={[styles.deletePill, { borderColor: c.danger, backgroundColor: c.background }]}
+                  accessibilityRole="button"
+                  style={styles.deleteIconBtn}
                 >
-                  <Ionicons name="trash-outline" size={18} color={c.danger} />
+                  <Ionicons name="trash-outline" size={20} color={c.danger} />
                 </Pressable>
               </View>
 
@@ -256,10 +257,10 @@ const styles = StyleSheet.create({
   dateBlock: { flex: 1, minWidth: 0 },
   dateLine: { fontSize: 17, fontWeight: '800' },
   timeLine: { fontSize: 14, fontWeight: '500', marginTop: 2 },
-  deletePill: {
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
+  deleteIconBtn: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   metaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metaChip: {

@@ -18,7 +18,12 @@ type AuthContextValue = {
   /** Increments after sign-out clears local DB; use to refresh screens that read SQLite. */
   localDataVersion: number;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<SignUpResult>;
+  /** Optional `fullName` is stored on the auth user as `full_name` (user metadata). */
+  signUp: (
+    email: string,
+    password: string,
+    options?: { fullName?: string }
+  ) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   backendReady: boolean;
 };
@@ -55,13 +60,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error as Error | null };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    const sb = getSupabase();
-    if (!sb) return { error: new Error('Supabase not configured'), session: null };
-    const { data, error } = await sb.auth.signUp({ email, password });
-    if (error) return { error: error as Error, session: null };
-    return { error: null, session: data.session ?? null };
-  }, []);
+  const signUp = useCallback(
+    async (email: string, password: string, options?: { fullName?: string }) => {
+      const sb = getSupabase();
+      if (!sb) return { error: new Error('Supabase not configured'), session: null };
+      const name = options?.fullName?.trim();
+      const { data, error } = await sb.auth.signUp({
+        email,
+        password,
+        options:
+          name && name.length > 0
+            ? { data: { full_name: name } }
+            : undefined,
+      });
+      if (error) return { error: error as Error, session: null };
+      return { error: null, session: data.session ?? null };
+    },
+    []
+  );
 
   const signOut = useCallback(async () => {
     const sb = getSupabase();

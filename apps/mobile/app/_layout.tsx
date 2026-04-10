@@ -98,6 +98,14 @@ export default function RootLayout() {
                         headerShown: true,
                       }}
                     />
+                    <Stack.Screen
+                      name="sign-up"
+                      options={{
+                        title: 'Create account',
+                        presentation: 'modal',
+                        headerShown: true,
+                      }}
+                    />
                   </Stack>
                 </ToastProvider>
               </AppAlertProvider>

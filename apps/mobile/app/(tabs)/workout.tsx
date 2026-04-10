@@ -1008,9 +1008,10 @@ export default function WorkoutScreen() {
                   onPress={() => confirmDeleteSet(s)}
                   hitSlop={10}
                   accessibilityLabel="Remove set"
-                  style={[styles.setDeleteBtn, { borderColor: c.danger, backgroundColor: c.background }]}
+                  accessibilityRole="button"
+                  style={styles.deleteIconBtn}
                 >
-                  <Ionicons name="trash-outline" size={18} color={c.danger} />
+                  <Ionicons name="trash-outline" size={20} color={c.danger} />
                 </Pressable>
               </View>
             ))}
@@ -1507,10 +1508,10 @@ const styles = StyleSheet.create({
   exName: { fontWeight: '700', fontSize: 17 },
   setDivider: { height: StyleSheet.hairlineWidth, marginVertical: 10 },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
-  setDeleteBtn: {
-    padding: 8,
-    borderRadius: 10,
-    borderWidth: 1,
+  deleteIconBtn: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   setBadge: {
     minWidth: 26,
