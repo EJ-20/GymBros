@@ -11,6 +11,13 @@ export const muscleGroupSchema = z.enum([
   'full_body',
 ]);
 
+export const exerciseTrackingModeSchema = z.enum([
+  'weight_reps',
+  'bodyweight_reps',
+  'time',
+  'time_distance',
+]);
+
 export const exerciseSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(120),
@@ -18,6 +25,7 @@ export const exerciseSchema = z.object({
   equipment: z.string().max(80).optional(),
   isCustom: z.boolean(),
   createdAt: z.string().datetime(),
+  trackingMode: exerciseTrackingModeSchema,
 });
 
 export const workoutSessionSchema = z.object({
@@ -37,6 +45,7 @@ export const setLogSchema = z.object({
   reps: z.number().int().min(0).nullable(),
   weightKg: z.number().min(0).nullable(),
   durationSec: z.number().int().min(0).nullable(),
+  distanceM: z.number().min(0).nullable(),
   rpe: z.number().min(1).max(10).nullable(),
 });
 

@@ -1,4 +1,6 @@
+import { healthWatchPayloadSchema } from '@gymbros/shared';
 import * as Linking from 'expo-linking';
+import { mergeHealthDaily } from '@/src/health/healthRepo';
 
 /**
  * Hooks for a future Apple Watch / Wear OS companion.
@@ -17,3 +19,18 @@ export function parseWatchIntent(url: string): 'start' | 'active' | null {
 
 /** Placeholder for a native watch app to report elapsed time (requires custom dev client). */
 export function reportWatchElapsedSeconds(_totalSeconds: number): void {}
+
+/**
+ * Ingest one calendar day of health metrics from a watch companion or native HealthKit / Health Connect bridge.
+ * Call from native code (WatchConnectivity, modules) after validating JSON on the JS side.
+ */
+export function reportWatchHealthSnapshot(
+  payload: unknown
+): { ok: true } | { ok: false; error: string } {
+  const parsed = healthWatchPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.message };
+  }
+  mergeHealthDaily(parsed.data);
+  return { ok: true };
+}

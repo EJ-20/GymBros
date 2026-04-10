@@ -1,22 +1,21 @@
-import { recentSessionsForContext } from '@/src/db/workoutRepo';
-import { formatWeightFromKgForInput, type WeightUnit } from '@/src/lib/weightUnits';
+import { listExercises, recentSessionsForContext } from '@/src/db/workoutRepo';
+import { formatSetSummary } from '@/src/lib/setDisplay';
+import type { WeightUnit } from '@/src/lib/weightUnits';
 
 export function buildCoachContextSummary(maxSessions = 6, weightUnit: WeightUnit = 'kg'): string {
   const blocks = recentSessionsForContext(maxSessions);
   if (!blocks.length) return '';
 
+  const exercises = listExercises();
+  const exById = Object.fromEntries(exercises.map((e) => [e.id, e]));
+
   return blocks
-    .map(({ session, sets, exerciseNames }) => {
+    .map(({ session, sets }) => {
       const when = session.endedAt ?? session.startedAt;
       const parts = sets.map((s) => {
-        const name = exerciseNames[s.exerciseId] ?? 'Exercise';
-        const w =
-          s.weightKg != null
-            ? `${formatWeightFromKgForInput(s.weightKg, weightUnit)}${weightUnit === 'lbs' ? 'lb' : 'kg'}`
-            : '';
-        const r = s.reps != null ? `${s.reps} reps` : '';
-        const t = s.durationSec != null ? `${s.durationSec}s` : '';
-        return [name, w && r ? `${r} @ ${w}` : r || w, t].filter(Boolean).join(' ');
+        const ex = exById[s.exerciseId];
+        const name = ex?.name ?? 'Exercise';
+        return `${name}: ${formatSetSummary(ex ?? null, s, weightUnit)}`;
       });
       return `${when.slice(0, 10)}: ${parts.join('; ') || '(no sets)'}`;
     })

@@ -1,4 +1,13 @@
-import { bestSetFromHistory, isPrCandidate } from '@gymbros/shared';
+import {
+  bestBodyweightRepsFromHistory,
+  bestDistanceMFromHistory,
+  bestDurationSecFromHistory,
+  bestSetFromHistory,
+  isBodyweightRepsPrCandidate,
+  isDistancePrCandidate,
+  isDurationPrCandidate,
+  isPrCandidate,
+} from '@gymbros/shared';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useToast } from '@/src/contexts/ToastContext';
@@ -17,6 +26,13 @@ import {
   weightUnitLabel,
   type WeightUnit,
 } from '@/src/lib/weightUnits';
+import {
+  distanceFieldLabel,
+  formatDuration,
+  formatSetSummary,
+  parseDistanceInputToMeters,
+  formatDistanceInputFromMeters,
+} from '@/src/lib/setDisplay';
 import { useCallback, useEffect, useMemo, useRef, useState, type ElementRef } from 'react';
 import {
   AppState,
@@ -32,17 +48,38 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros/shared';
+import type {
+  Exercise,
+  ExerciseTrackingMode,
+  SetLog,
+  WorkoutSession,
+  WorkoutTemplate,
+} from '@gymbros/shared';
 
 /** Built-in preset names — shown first on the idle Workout screen when present. */
 const PRESET_ROUTINE_NAMES = ['Push day', 'Pull day', 'Leg day', 'Full body'] as const;
 
+const MUSCLE_GROUPS: Exercise['muscleGroup'][] = [
+  'chest',
+  'back',
+  'shoulders',
+  'arms',
+  'legs',
+  'core',
+  'cardio',
+  'full_body',
+];
+
+const TRACKING_OPTIONS: { mode: ExerciseTrackingMode; label: string; hint: string }[] = [
+  { mode: 'weight_reps', label: 'Weight + reps', hint: 'Barbell, dumbbell, machines' },
+  { mode: 'bodyweight_reps', label: 'Bodyweight reps', hint: 'Pull-ups, push-ups' },
+  { mode: 'time', label: 'Time', hint: 'Plank, wall sit' },
+  { mode: 'time_distance', label: 'Time + distance', hint: 'Run, bike, rower' },
+];
+
 function setDeleteSummary(s: SetLog, unit: WeightUnit): string {
-  const w =
-    s.weightKg != null
-      ? `${formatWeightFromKgForInput(s.weightKg, unit)} ${weightUnitLabel(unit)}`
-      : '—';
-  return `${s.reps ?? '—'} reps × ${w}`;
+  const ex = repo.getExerciseById(s.exerciseId);
+  return formatSetSummary(ex, s, unit);
 }
 
 function formatWorkoutElapsed(startedAtIso: string, nowMs: number): string {
@@ -80,9 +117,18 @@ export default function WorkoutScreen() {
   const [customName, setCustomName] = useState('');
   const [reps, setReps] = useState('');
   const [weight, setWeight] = useState('');
+  const [durationInput, setDurationInput] = useState('');
+  const [distanceInput, setDistanceInput] = useState('');
+  const [swRunning, setSwRunning] = useState(false);
+  const [swStartMs, setSwStartMs] = useState<number | null>(null);
+  const [swStoppedSec, setSwStoppedSec] = useState<number | null>(null);
+  const [swTick, setSwTick] = useState(0);
+  const [customMuscle, setCustomMuscle] = useState<Exercise['muscleGroup']>('full_body');
+  const [customTracking, setCustomTracking] = useState<ExerciseTrackingMode>('weight_reps');
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   /** When set, shows chips to jump through a saved routine (in-memory for this session). */
   const [routineExerciseIds, setRoutineExerciseIds] = useState<string[] | null>(null);
+  const [elapsedNowMs, setElapsedNowMs] = useState(() => Date.now());
   const exercises = repo.listExercises();
   const sortedIdleTemplates = useMemo(() => {
     const list = repo.listTemplates();
@@ -131,51 +177,33 @@ export default function WorkoutScreen() {
     });
   }, [unit]);
 
+  const resetStopwatch = useCallback(() => {
+    setSwRunning(false);
+    setSwStartMs(null);
+    setSwStoppedSec(null);
+  }, []);
+
   const prefillFromHistory = (_exerciseId: string, _sessionIdForPrior: string) => {
     setReps('');
     setWeight('');
+    setDurationInput('');
+    setDistanceInput('');
+    resetStopwatch();
   };
 
-  const pickExercise = (ex: Exercise) => {
-    setSelectedExerciseId(ex.id);
-    setPickerOpen(false);
-    prefillFromHistory(ex.id, currentSessionId());
-  };
+  useEffect(() => {
+    setReps('');
+    setWeight('');
+    setDurationInput('');
+    setDistanceInput('');
+    resetStopwatch();
+  }, [selectedExerciseId, resetStopwatch]);
 
-  const jumpToRoutineExercise = (exerciseId: string) => {
-    const ex = repo.getExerciseById(exerciseId);
-    if (!ex || !session) return;
-    setSelectedExerciseId(exerciseId);
-    prefillFromHistory(exerciseId, session.id);
-  };
-
-  /** Last set for this exercise in the current session, else best set from completed past sessions. */
-  const previousReference = useMemo((): {
-    reps: number | null;
-    weightKg: number | null;
-  } | null => {
-    if (!session || !selectedExerciseId) return null;
-    const cur = setsByExercise[selectedExerciseId];
-    if (cur?.length) {
-      const last = cur[cur.length - 1]!;
-      return { reps: last.reps, weightKg: last.weightKg };
-    }
-    const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
-    const best = bestSetFromHistory(prior);
-    if (!best) return null;
-    return { reps: best.reps, weightKg: best.weightKg };
-  }, [session, selectedExerciseId, setsByExercise]);
-
-  const repsPlaceholder =
-    previousReference?.reps != null ? String(previousReference.reps) : '0';
-  const weightPlaceholder =
-    previousReference?.weightKg != null
-      ? formatWeightFromKgForInput(previousReference.weightKg, unit)
-      : unit === 'kg'
-        ? '20'
-        : '45';
-
-  const [elapsedNowMs, setElapsedNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!swRunning || swStartMs == null) return;
+    const id = setInterval(() => setSwTick((t) => t + 1), 250);
+    return () => clearInterval(id);
+  }, [swRunning, swStartMs]);
 
   useEffect(() => {
     if (!session) return;
@@ -190,6 +218,106 @@ export default function WorkoutScreen() {
       sub.remove();
     };
   }, [session?.id]);
+
+  const pickExercise = (ex: Exercise) => {
+    setSelectedExerciseId(ex.id);
+    setPickerOpen(false);
+    prefillFromHistory(ex.id, currentSessionId());
+  };
+
+  const jumpToRoutineExercise = (exerciseId: string) => {
+    const ex = repo.getExerciseById(exerciseId);
+    if (!ex || !session) return;
+    setSelectedExerciseId(exerciseId);
+    prefillFromHistory(exerciseId, session.id);
+  };
+
+  type Pref =
+    | { mode: 'weight_reps'; reps: number | null; weightKg: number | null }
+    | { mode: 'bodyweight_reps'; reps: number | null }
+    | { mode: 'time'; durationSec: number | null }
+    | { mode: 'time_distance'; durationSec: number | null; distanceM: number | null };
+
+  /** Last set in session, else best prior completed sets for this exercise. */
+  const previousReference = useMemo((): Pref | null => {
+    if (!session || !selectedExerciseId) return null;
+    const ex = repo.getExerciseById(selectedExerciseId);
+    const mode = ex?.trackingMode ?? 'weight_reps';
+    const cur = setsByExercise[selectedExerciseId];
+    if (cur?.length) {
+      const last = cur[cur.length - 1]!;
+      switch (mode) {
+        case 'time':
+          return { mode: 'time', durationSec: last.durationSec };
+        case 'time_distance':
+          return {
+            mode: 'time_distance',
+            durationSec: last.durationSec,
+            distanceM: last.distanceM,
+          };
+        case 'bodyweight_reps':
+          return { mode: 'bodyweight_reps', reps: last.reps };
+        default:
+          return { mode: 'weight_reps', reps: last.reps, weightKg: last.weightKg };
+      }
+    }
+    const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
+    switch (mode) {
+      case 'time': {
+        const b = bestDurationSecFromHistory(prior);
+        return { mode: 'time', durationSec: b };
+      }
+      case 'time_distance': {
+        return {
+          mode: 'time_distance',
+          durationSec: bestDurationSecFromHistory(prior),
+          distanceM: bestDistanceMFromHistory(prior),
+        };
+      }
+      case 'bodyweight_reps': {
+        const b = bestBodyweightRepsFromHistory(prior);
+        return { mode: 'bodyweight_reps', reps: b };
+      }
+      default: {
+        const best = bestSetFromHistory(
+          prior.map((p) => ({ weightKg: p.weightKg, reps: p.reps }))
+        );
+        return best
+          ? { mode: 'weight_reps', reps: best.reps, weightKg: best.weightKg }
+          : { mode: 'weight_reps', reps: null, weightKg: null };
+      }
+    }
+  }, [session, selectedExerciseId, setsByExercise]);
+
+  const repsPlaceholder =
+    previousReference?.mode === 'bodyweight_reps' || previousReference?.mode === 'weight_reps'
+      ? String(previousReference.reps ?? 0)
+      : '0';
+  const weightPlaceholder =
+    previousReference?.mode === 'weight_reps' && previousReference.weightKg != null
+      ? formatWeightFromKgForInput(previousReference.weightKg, unit)
+      : unit === 'kg'
+        ? '20'
+        : '45';
+  const durationPlaceholder =
+    previousReference?.mode === 'time' || previousReference?.mode === 'time_distance'
+      ? String(previousReference.durationSec ?? 60)
+      : '60';
+  const distancePlaceholder =
+    previousReference?.mode === 'time_distance' && previousReference.distanceM != null
+      ? formatDistanceInputFromMeters(previousReference.distanceM, unit)
+      : unit === 'lbs'
+        ? '1'
+        : '1';
+
+  void swTick;
+  const stopwatchDisplaySec =
+    swRunning && swStartMs != null
+      ? Math.floor((Date.now() - swStartMs) / 1000)
+      : (swStoppedSec ?? 0);
+
+  const selectedExercise = selectedExerciseId ? repo.getExerciseById(selectedExerciseId) : null;
+  const trackingMode = selectedExercise?.trackingMode ?? 'weight_reps';
 
   const start = () => {
     setRoutineExerciseIds(null);
@@ -258,7 +386,7 @@ export default function WorkoutScreen() {
   const addCustom = () => {
     const name = customName.trim();
     if (!name) return;
-    const ex = repo.createExercise(name, 'full_body');
+    const ex = repo.createExercise(name, customMuscle, { trackingMode: customTracking });
     setCustomName('');
     setCustomOpen(false);
     pickExercise(ex);
@@ -280,7 +408,9 @@ export default function WorkoutScreen() {
       return;
     }
     const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
-    const best = bestSetFromHistory(prior);
+    const best = bestSetFromHistory(
+      prior.map((p) => ({ weightKg: p.weightKg, reps: p.reps }))
+    );
     const newSet = repo.addSet(session.id, selectedExerciseId, {
       reps: r,
       weightKg: wKg,
@@ -302,7 +432,120 @@ export default function WorkoutScreen() {
     commitSetFromStrings(rResolved, wResolved);
   };
 
+  const commitTimeSet = () => {
+    if (!session || !selectedExerciseId) {
+      showAlert('Pick an exercise', 'Choose an exercise before adding a set.');
+      return;
+    }
+    const resolved = durationInput.trim() === '' ? durationPlaceholder : durationInput.trim();
+    const sec = parseInt(resolved, 10);
+    if (!Number.isFinite(sec) || sec < 0) {
+      showAlert('Invalid duration', 'Enter seconds (whole numbers, 0 or more).');
+      return;
+    }
+    const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
+    const bestDur = bestDurationSecFromHistory(prior);
+    repo.addSet(session.id, selectedExerciseId, {
+      durationSec: sec,
+      reps: null,
+      weightKg: null,
+      distanceM: null,
+    });
+    refresh();
+    if (isDurationPrCandidate(sec, bestDur)) showToast('Best time on this exercise so far');
+    setDurationInput('');
+    resetStopwatch();
+    Keyboard.dismiss();
+  };
+
+  const commitTimeDistanceSet = () => {
+    if (!session || !selectedExerciseId) {
+      showAlert('Pick an exercise', 'Choose an exercise before adding a set.');
+      return;
+    }
+    const resolved = durationInput.trim() === '' ? durationPlaceholder : durationInput.trim();
+    const sec = parseInt(resolved, 10);
+    if (!Number.isFinite(sec) || sec < 0) {
+      showAlert('Invalid duration', 'Enter duration in seconds (0 or more).');
+      return;
+    }
+    const dStr = distanceInput.trim() === '' ? distancePlaceholder : distanceInput.trim();
+    const distM = parseDistanceInputToMeters(dStr, unit);
+    if (distM === null) {
+      showAlert(
+        'Invalid distance',
+        `Enter distance in ${unit === 'lbs' ? 'miles' : 'kilometers'} using a number.`
+      );
+      return;
+    }
+    const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
+    const bestDist = bestDistanceMFromHistory(prior);
+    const bestDur = bestDurationSecFromHistory(prior);
+    repo.addSet(session.id, selectedExerciseId, {
+      durationSec: sec,
+      distanceM: distM,
+      reps: null,
+      weightKg: null,
+    });
+    refresh();
+    if (isDistancePrCandidate(distM, bestDist)) showToast('New best distance');
+    else if (isDurationPrCandidate(sec, bestDur)) showToast('Longest duration logged');
+    setDurationInput('');
+    setDistanceInput('');
+    resetStopwatch();
+    Keyboard.dismiss();
+  };
+
+  const commitBodyweightSet = (repsOverride?: string) => {
+    if (!session || !selectedExerciseId) {
+      showAlert('Pick an exercise', 'Choose an exercise before adding a set.');
+      return;
+    }
+    const raw = repsOverride ?? reps;
+    const rResolved = raw.trim() === '' ? repsPlaceholder : raw.trim();
+    const r = parseInt(rResolved, 10);
+    if (!Number.isFinite(r) || r < 0) {
+      showAlert('Invalid reps', 'Enter reps (0 or more).');
+      return;
+    }
+    const prior = repo.listSetsForExerciseBeforeSession(selectedExerciseId, session.id);
+    const best = bestBodyweightRepsFromHistory(prior);
+    const newSet = repo.addSet(session.id, selectedExerciseId, {
+      reps: r,
+      weightKg: null,
+    });
+    const pr = isBodyweightRepsPrCandidate(r, best);
+    refresh();
+    if (pr) showToast('PR — more reps on this exercise');
+    setReps('');
+    Keyboard.dismiss();
+    requestAnimationFrame(() => repsInputRef.current?.focus());
+  };
+
+  const onAddPress = () => {
+    switch (trackingMode) {
+      case 'time':
+        commitTimeSet();
+        break;
+      case 'time_distance':
+        commitTimeDistanceSet();
+        break;
+      case 'bodyweight_reps':
+        commitBodyweightSet();
+        break;
+      default:
+        addSet();
+    }
+  };
+
   const onRepsSubmitEditing = () => {
+    if (trackingMode === 'bodyweight_reps') {
+      const rResolved = reps.trim() === '' ? repsPlaceholder : reps.trim();
+      setReps(rResolved);
+      Keyboard.dismiss();
+      commitBodyweightSet(rResolved);
+      return;
+    }
     setReps((r) => (r.trim() === '' ? repsPlaceholder : r.trim()));
     weightInputRef.current?.focus();
   };
@@ -511,9 +754,11 @@ export default function WorkoutScreen() {
               ? repo.getExerciseById(selectedExerciseId)?.name ?? 'Exercise'
               : 'Tap to select'}
           </Text>
-          {selectedExerciseId ? (
-            <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
-              {repo.getExerciseById(selectedExerciseId)?.muscleGroup ?? ''}
+          {selectedExercise ? (
+            <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={2}>
+              {String(selectedExercise.muscleGroup).replace(/_/g, ' ')} ·{' '}
+              {TRACKING_OPTIONS.find((o) => o.mode === selectedExercise.trackingMode)?.label ??
+                'Weight + reps'}
             </Text>
           ) : null}
         </View>
@@ -522,49 +767,213 @@ export default function WorkoutScreen() {
 
       <View style={[styles.logPanel, { backgroundColor: c.card, borderColor: c.border }]}>
         <Text style={[styles.logPanelTitle, { color: c.textMuted }]}>Log set</Text>
-        <View style={styles.inputRow}>
-          <View style={styles.inputCol}>
-            <Text style={[styles.inputLabel, { color: c.textMuted }]}>Reps</Text>
-            <TextInput
-              ref={repsInputRef}
-              style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
-              keyboardType={
-                Platform.OS === 'web' ? 'default' : Platform.OS === 'ios' ? 'number-pad' : 'numeric'
-              }
-              returnKeyType="next"
-              blurOnSubmit={false}
-              onSubmitEditing={onRepsSubmitEditing}
-              value={reps}
-              onChangeText={setReps}
-              placeholder={repsPlaceholder}
-              placeholderTextColor={c.textMuted}
-            />
-          </View>
-          <View style={styles.inputCol}>
-            <Text style={[styles.inputLabel, { color: c.textMuted }]}>
-              Weight ({weightUnitLabel(unit)})
+
+        {trackingMode === 'time' || trackingMode === 'time_distance' ? (
+          <View style={styles.stopwatchBlock}>
+            <Text style={[styles.stopwatchDigits, { color: c.text }]}>
+              {formatDuration(stopwatchDisplaySec)}
             </Text>
-            <TextInput
-              ref={weightInputRef}
-              style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
-              keyboardType={Platform.OS === 'web' ? 'default' : 'decimal-pad'}
-              returnKeyType="done"
-              blurOnSubmit={true}
-              onSubmitEditing={onWeightSubmitEditing}
-              value={weight}
-              onChangeText={setWeight}
-              placeholder={weightPlaceholder}
-              placeholderTextColor={c.textMuted}
-            />
+            <Text style={[styles.stopwatchHint, { color: c.textMuted }]}>
+              Stopwatch — Stop copies time into the field below
+            </Text>
+            <View style={styles.stopwatchBtns}>
+              <Pressable
+                onPress={() => {
+                  setSwRunning(true);
+                  setSwStartMs(Date.now());
+                  setSwStoppedSec(null);
+                  setSwTick((t) => t + 1);
+                }}
+                style={[styles.swBtn, { backgroundColor: c.tint }]}
+              >
+                <Text style={[styles.swBtnText, { color: c.onTintLight }]}>Start</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (!swRunning || swStartMs == null) return;
+                  const sec = Math.floor((Date.now() - swStartMs) / 1000);
+                  setSwRunning(false);
+                  setSwStartMs(null);
+                  setSwStoppedSec(sec);
+                  setDurationInput(String(sec));
+                }}
+                style={[styles.swBtn, { backgroundColor: c.background, borderWidth: 1, borderColor: c.border }]}
+              >
+                <Text style={[styles.swBtnText, { color: c.text }]}>Stop</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  resetStopwatch();
+                  setDurationInput('');
+                }}
+                style={[styles.swBtn, { backgroundColor: c.background, borderWidth: 1, borderColor: c.border }]}
+              >
+                <Text style={[styles.swBtnText, { color: c.textMuted }]}>Reset</Text>
+              </Pressable>
+            </View>
           </View>
-          <View style={styles.addBtnCol}>
-            <Text style={[styles.inputLabel, { color: 'transparent' }]}> </Text>
-            <Pressable style={[styles.addSetBtn, { backgroundColor: c.tint }]} onPress={addSet}>
+        ) : null}
+
+        {trackingMode === 'weight_reps' ? (
+          <View style={styles.inputRow}>
+            <View style={styles.inputCol}>
+              <Text style={[styles.inputLabel, { color: c.textMuted }]}>Reps</Text>
+              <TextInput
+                ref={repsInputRef}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+                keyboardType={
+                  Platform.OS === 'web' ? 'default' : Platform.OS === 'ios' ? 'number-pad' : 'numeric'
+                }
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={onRepsSubmitEditing}
+                value={reps}
+                onChangeText={setReps}
+                placeholder={repsPlaceholder}
+                placeholderTextColor={c.textMuted}
+              />
+            </View>
+            <View style={styles.inputCol}>
+              <Text style={[styles.inputLabel, { color: c.textMuted }]}>
+                Weight ({weightUnitLabel(unit)})
+              </Text>
+              <TextInput
+                ref={weightInputRef}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+                keyboardType={Platform.OS === 'web' ? 'default' : 'decimal-pad'}
+                returnKeyType="done"
+                blurOnSubmit={true}
+                onSubmitEditing={onWeightSubmitEditing}
+                value={weight}
+                onChangeText={setWeight}
+                placeholder={weightPlaceholder}
+                placeholderTextColor={c.textMuted}
+              />
+            </View>
+            <View style={styles.addBtnCol}>
+              <Text style={[styles.inputLabel, { color: 'transparent' }]}> </Text>
+              <Pressable style={[styles.addSetBtn, { backgroundColor: c.tint }]} onPress={onAddPress}>
+                <Ionicons name="add-circle-outline" size={22} color={c.onTintLight} />
+                <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Add</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {trackingMode === 'bodyweight_reps' ? (
+          <View style={styles.inputRow}>
+            <View style={[styles.inputCol, { flex: 2 }]}>
+              <Text style={[styles.inputLabel, { color: c.textMuted }]}>Reps</Text>
+              <TextInput
+                ref={repsInputRef}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+                keyboardType={
+                  Platform.OS === 'web' ? 'default' : Platform.OS === 'ios' ? 'number-pad' : 'numeric'
+                }
+                returnKeyType="done"
+                blurOnSubmit={true}
+                onSubmitEditing={onRepsSubmitEditing}
+                value={reps}
+                onChangeText={setReps}
+                placeholder={repsPlaceholder}
+                placeholderTextColor={c.textMuted}
+              />
+            </View>
+            <View style={styles.addBtnCol}>
+              <Text style={[styles.inputLabel, { color: 'transparent' }]}> </Text>
+              <Pressable style={[styles.addSetBtn, { backgroundColor: c.tint }]} onPress={onAddPress}>
+                <Ionicons name="add-circle-outline" size={22} color={c.onTintLight} />
+                <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Add</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {trackingMode === 'time' ? (
+          <View style={styles.inputRow}>
+            <View style={[styles.inputCol, { flex: 2 }]}>
+              <Text style={[styles.inputLabel, { color: c.textMuted }]}>Duration (sec)</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                ]}
+                keyboardType={
+                  Platform.OS === 'web' ? 'default' : Platform.OS === 'ios' ? 'number-pad' : 'numeric'
+                }
+                returnKeyType="done"
+                value={durationInput}
+                onChangeText={setDurationInput}
+                placeholder={durationPlaceholder}
+                placeholderTextColor={c.textMuted}
+              />
+            </View>
+            <View style={styles.addBtnCol}>
+              <Text style={[styles.inputLabel, { color: 'transparent' }]}> </Text>
+              <Pressable style={[styles.addSetBtn, { backgroundColor: c.tint }]} onPress={onAddPress}>
+                <Ionicons name="add-circle-outline" size={22} color={c.onTintLight} />
+                <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Add</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {trackingMode === 'time_distance' ? (
+          <View style={styles.timeDistanceCol}>
+            <View style={styles.inputRow}>
+              <View style={styles.inputCol}>
+                <Text style={[styles.inputLabel, { color: c.textMuted }]}>Duration (sec)</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                  ]}
+                  keyboardType={
+                    Platform.OS === 'web' ? 'default' : Platform.OS === 'ios' ? 'number-pad' : 'numeric'
+                  }
+                  returnKeyType="next"
+                  value={durationInput}
+                  onChangeText={setDurationInput}
+                  placeholder={durationPlaceholder}
+                  placeholderTextColor={c.textMuted}
+                />
+              </View>
+              <View style={styles.inputCol}>
+                <Text style={[styles.inputLabel, { color: c.textMuted }]}>
+                  {distanceFieldLabel(unit)}
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                  ]}
+                  keyboardType={Platform.OS === 'web' ? 'default' : 'decimal-pad'}
+                  returnKeyType="done"
+                  value={distanceInput}
+                  onChangeText={setDistanceInput}
+                  placeholder={distancePlaceholder}
+                  placeholderTextColor={c.textMuted}
+                />
+              </View>
+            </View>
+            <Pressable
+              style={[styles.addSetBtn, { backgroundColor: c.tint, alignSelf: 'flex-start', marginTop: 10 }]}
+              onPress={onAddPress}
+            >
               <Ionicons name="add-circle-outline" size={22} color={c.onTintLight} />
-              <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Add</Text>
+              <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Add set</Text>
             </Pressable>
           </View>
-        </View>
+        ) : null}
       </View>
 
       <Text style={[styles.sessionLogHeader, { color: c.textMuted }]}>This session</Text>
@@ -590,10 +999,7 @@ export default function WorkoutScreen() {
                   <Text style={{ color: c.tint, fontWeight: '800', fontSize: 12 }}>{s.orderIndex + 1}</Text>
                 </View>
                 <Text style={{ color: c.text, fontWeight: '600', flex: 1 }}>
-                  {s.reps} ×{' '}
-                  {s.weightKg != null
-                    ? `${formatWeightFromKgForInput(s.weightKg, unit)} ${weightUnitLabel(unit)}`
-                    : '—'}
+                  {formatSetSummary(item.exercise, s, unit)}
                 </Text>
                 {s.rpe != null ? (
                   <Text style={{ color: c.textMuted, fontSize: 13, marginRight: 4 }}>RPE {s.rpe}</Text>
@@ -630,7 +1036,11 @@ export default function WorkoutScreen() {
               </Text>
             </View>
             <Pressable
-              onPress={() => setCustomOpen(true)}
+              onPress={() => {
+                setCustomMuscle('full_body');
+                setCustomTracking('weight_reps');
+                setCustomOpen(true);
+              }}
               style={[styles.customExerciseBtn, { backgroundColor: c.background, borderColor: c.tint }]}
             >
               <Ionicons name="add-circle-outline" size={20} color={c.tint} />
@@ -647,7 +1057,8 @@ export default function WorkoutScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{item.name}</Text>
                     <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>
-                      {String(item.muscleGroup).replace(/_/g, ' ')}
+                      {String(item.muscleGroup).replace(/_/g, ' ')} ·{' '}
+                      {TRACKING_OPTIONS.find((o) => o.mode === item.trackingMode)?.label ?? 'Weight + reps'}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
@@ -665,30 +1076,108 @@ export default function WorkoutScreen() {
       </Modal>
 
       <Modal visible={customOpen} animationType="fade" transparent>
-        <View style={[styles.modalBackdrop, { backgroundColor: c.overlay }]}>
-          <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <View style={styles.modalHeaderRow}>
-              <Ionicons name="create-outline" size={22} color={c.tint} />
-              <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
-                New exercise
+        <View style={[styles.modalBackdrop, { backgroundColor: c.overlay, justifyContent: 'center' }]}>
+          <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border, maxHeight: '88%' }]}>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <View style={styles.modalHeaderRow}>
+                <Ionicons name="create-outline" size={22} color={c.tint} />
+                <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
+                  New exercise
+                </Text>
+              </View>
+              <Text style={{ color: c.textMuted, fontSize: 13, marginBottom: 10 }}>Log type</Text>
+              <View style={styles.optionChipWrap}>
+                {TRACKING_OPTIONS.map((opt) => {
+                  const on = customTracking === opt.mode;
+                  return (
+                    <Pressable
+                      key={opt.mode}
+                      onPress={() => setCustomTracking(opt.mode)}
+                      style={[
+                        styles.optionChip,
+                        {
+                          borderColor: on ? c.tint : c.border,
+                          backgroundColor: on ? c.tint : c.background,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: on ? c.onTintLight : c.text,
+                          fontWeight: on ? '800' : '600',
+                          fontSize: 13,
+                        }}
+                      >
+                        {opt.label}
+                      </Text>
+                      <Text
+                        style={{
+                          color: on ? c.onTintLight : c.textMuted,
+                          fontSize: 11,
+                          marginTop: 2,
+                          opacity: 0.9,
+                        }}
+                      >
+                        {opt.hint}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={{ color: c.textMuted, fontSize: 13, marginTop: 14, marginBottom: 8 }}>
+                Muscle group
               </Text>
-            </View>
-            <TextInput
-              value={customName}
-              onChangeText={setCustomName}
-              placeholder="Name"
-              placeholderTextColor={c.textMuted}
-              style={[
-                styles.input,
-                { color: c.text, borderColor: c.border, marginBottom: 16, backgroundColor: c.background },
-              ]}
-            />
-            <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]} onPress={addCustom}>
-              <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save & select</Text>
-            </Pressable>
-            <Pressable onPress={() => setCustomOpen(false)} style={{ marginTop: 12, alignItems: 'center' }}>
-              <Text style={{ color: c.textMuted, fontWeight: '600' }}>Cancel</Text>
-            </Pressable>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.muscleChipRow}
+              >
+                {MUSCLE_GROUPS.map((mg) => {
+                  const on = customMuscle === mg;
+                  return (
+                    <Pressable
+                      key={mg}
+                      onPress={() => setCustomMuscle(mg)}
+                      style={[
+                        styles.muscleChip,
+                        {
+                          borderColor: on ? c.tint : c.border,
+                          backgroundColor: on ? c.tint : c.background,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: on ? c.onTintLight : c.text,
+                          fontWeight: on ? '700' : '500',
+                          fontSize: 13,
+                          textTransform: 'capitalize',
+                        }}
+                      >
+                        {String(mg).replace(/_/g, ' ')}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <Text style={{ color: c.textMuted, fontSize: 13, marginTop: 14, marginBottom: 8 }}>Name</Text>
+              <TextInput
+                value={customName}
+                onChangeText={setCustomName}
+                placeholder="Exercise name"
+                placeholderTextColor={c.textMuted}
+                style={[
+                  styles.input,
+                  { color: c.text, borderColor: c.border, marginBottom: 16, backgroundColor: c.background },
+                ]}
+              />
+              <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]} onPress={addCustom}>
+                <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save & select</Text>
+              </Pressable>
+              <Pressable onPress={() => setCustomOpen(false)} style={{ marginTop: 12, alignItems: 'center' }}>
+                <Text style={{ color: c.textMuted, fontWeight: '600' }}>Cancel</Text>
+              </Pressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -968,6 +1457,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   addBtnCol: { justifyContent: 'flex-end' },
+  stopwatchBlock: { marginBottom: 14 },
+  stopwatchDigits: { fontSize: 36, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
+  stopwatchHint: { fontSize: 12, marginTop: 6, lineHeight: 17 },
+  stopwatchBtns: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  swBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  swBtnText: { fontWeight: '700', fontSize: 14 },
+  timeDistanceCol: { width: '100%' },
+  optionChipWrap: { gap: 10 },
+  optionChip: {
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 12,
+  },
+  muscleChipRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
+  muscleChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
   addSetBtn: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -11,6 +11,7 @@ export const TABLE_SCHEMA = `
       equipment TEXT,
       is_custom INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
+      tracking_mode TEXT NOT NULL DEFAULT 'weight_reps',
       remote_id TEXT,
       dirty INTEGER NOT NULL DEFAULT 0
     );
@@ -32,6 +33,7 @@ export const TABLE_SCHEMA = `
       reps INTEGER,
       weight_kg REAL,
       duration_sec INTEGER,
+      distance_m REAL,
       rpe INTEGER,
       remote_id TEXT,
       dirty INTEGER NOT NULL DEFAULT 0,
@@ -51,8 +53,27 @@ export const TABLE_SCHEMA = `
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS health_daily (
+      day TEXT PRIMARY KEY NOT NULL,
+      steps INTEGER,
+      active_energy_kcal REAL,
+      resting_hr INTEGER,
+      avg_hr INTEGER,
+      sleep_minutes INTEGER,
+      exercise_minutes INTEGER,
+      distance_m REAL,
+      vo2_max REAL,
+      spo2 REAL,
+      respiratory_rate REAL,
+      hrv_ms REAL,
+      body_mass_kg REAL,
+      source TEXT NOT NULL DEFAULT 'watch',
+      updated_at TEXT NOT NULL,
+      extra_json TEXT
+    );
     CREATE INDEX IF NOT EXISTS idx_sets_session ON set_logs (session_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_started ON workout_sessions (started_at);
+    CREATE INDEX IF NOT EXISTS idx_health_daily_updated ON health_daily (updated_at);
 `;
 
 export type DbSync = {
@@ -64,6 +85,41 @@ export type DbSync = {
   ) => T | null;
   getAllSync: <T extends Record<string, unknown>>(sql: string, params?: unknown[]) => T[];
 };
+
+function ensureExerciseTrackingModeColumn(d: DbSync): void {
+  const rows = d.getAllSync<{ name: string }>('PRAGMA table_info(exercises)');
+  const names = new Set(rows.map((r) => r.name));
+  if (!names.has('tracking_mode')) {
+    d.execSync("ALTER TABLE exercises ADD COLUMN tracking_mode TEXT NOT NULL DEFAULT 'weight_reps'");
+  }
+}
+
+function ensureSetLogsDistanceColumn(d: DbSync): void {
+  const rows = d.getAllSync<{ name: string }>('PRAGMA table_info(set_logs)');
+  const names = new Set(rows.map((r) => r.name));
+  if (!names.has('distance_m')) {
+    d.execSync('ALTER TABLE set_logs ADD COLUMN distance_m REAL');
+  }
+}
+
+/** One-time: fix tracking for built-ins after adding the column. */
+function backfillExerciseTrackingModes(d: DbSync): void {
+  const done = d.getFirstSync<{ value: string }>(
+    "SELECT value FROM sync_meta WHERE key = 'seeded_exercise_tracking_v1'"
+  );
+  if (done) return;
+  const updates: [string, string][] = [
+    ['Plank', 'time'],
+    ['Run / treadmill', 'time_distance'],
+    ['Pull-up', 'bodyweight_reps'],
+  ];
+  for (const [name, mode] of updates) {
+    d.runSync('UPDATE exercises SET tracking_mode = ? WHERE name = ?', [mode, name]);
+  }
+  d.runSync(
+    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('seeded_exercise_tracking_v1', '1')"
+  );
+}
 
 function ensureWorkoutTemplatesSyncColumns(d: DbSync): void {
   const rows = d.getAllSync<{ name: string }>('PRAGMA table_info(workout_templates)');
@@ -92,6 +148,9 @@ export function runInitialSetup(db: DbSync): void {
   db.execSync('PRAGMA foreign_keys = ON;');
   db.execSync(TABLE_SCHEMA);
   ensureWorkoutTemplatesSyncColumns(db);
+  ensureExerciseTrackingModeColumn(db);
+  ensureSetLogsDistanceColumn(db);
+  backfillExerciseTrackingModes(db);
 
   const seeded = db.getFirstSync<{ value: string }>(
     "SELECT value FROM sync_meta WHERE key = 'seeded_exercises'"
@@ -154,25 +213,25 @@ function seedDefaultWorkoutRoutines(d: DbSync): void {
 
 function seedDefaultExercises(d: DbSync): void {
   const now = new Date().toISOString();
-  const defaults: [string, string, string][] = [
-    ['Bench press', 'chest', 'barbell'],
-    ['Squat', 'legs', 'barbell'],
-    ['Deadlift', 'back', 'barbell'],
-    ['Overhead press', 'shoulders', 'barbell'],
-    ['Pull-up', 'back', 'bodyweight'],
-    ['Row', 'back', 'cable'],
-    ['Leg press', 'legs', 'machine'],
-    ['Romanian deadlift', 'legs', 'barbell'],
-    ['Lat pulldown', 'back', 'cable'],
-    ['Plank', 'core', 'bodyweight'],
-    ['Run / treadmill', 'cardio', 'machine'],
+  const defaults: { name: string; mg: string; eq: string; track: string }[] = [
+    { name: 'Bench press', mg: 'chest', eq: 'barbell', track: 'weight_reps' },
+    { name: 'Squat', mg: 'legs', eq: 'barbell', track: 'weight_reps' },
+    { name: 'Deadlift', mg: 'back', eq: 'barbell', track: 'weight_reps' },
+    { name: 'Overhead press', mg: 'shoulders', eq: 'barbell', track: 'weight_reps' },
+    { name: 'Pull-up', mg: 'back', eq: 'bodyweight', track: 'bodyweight_reps' },
+    { name: 'Row', mg: 'back', eq: 'cable', track: 'weight_reps' },
+    { name: 'Leg press', mg: 'legs', eq: 'machine', track: 'weight_reps' },
+    { name: 'Romanian deadlift', mg: 'legs', eq: 'barbell', track: 'weight_reps' },
+    { name: 'Lat pulldown', mg: 'back', eq: 'cable', track: 'weight_reps' },
+    { name: 'Plank', mg: 'core', eq: 'bodyweight', track: 'time' },
+    { name: 'Run / treadmill', mg: 'cardio', eq: 'machine', track: 'time_distance' },
   ];
-  for (const [name, mg, eq] of defaults) {
+  for (const row of defaults) {
     const id = randomUUID();
     d.runSync(
-      `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, dirty)
-       VALUES (?, ?, ?, ?, 0, ?, 0)`,
-      [id, name, mg, eq, now]
+      `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, tracking_mode, dirty)
+       VALUES (?, ?, ?, ?, 0, ?, ?, 0)`,
+      [id, row.name, row.mg, row.eq, now, row.track]
     );
   }
 }
@@ -190,8 +249,8 @@ function ensureDefaultCardioExercise(d: DbSync): void {
     const id = randomUUID();
     const now = new Date().toISOString();
     d.runSync(
-      `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, dirty)
-       VALUES (?, ?, 'cardio', 'machine', 0, ?, 1)`,
+      `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, tracking_mode, dirty)
+       VALUES (?, ?, 'cardio', 'machine', 0, ?, 'time_distance', 1)`,
       [id, 'Run / treadmill', now]
     );
   }

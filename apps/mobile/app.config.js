@@ -25,7 +25,17 @@ module.exports = {
       output: 'static',
       favicon: './assets/images/favicon.png',
     },
-    plugins: ['expo-router', 'expo-sqlite'],
+    plugins: [
+      'expo-router',
+      'expo-sqlite',
+      [
+        'expo-sensors',
+        {
+          motionPermission:
+            'GymBros reads step counts from your phone and watch so activity matches your training.',
+        },
+      ],
+    ],
     experiments: {
       typedRoutes: true,
     },

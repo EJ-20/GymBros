@@ -32,3 +32,63 @@ export function bestSetFromHistory(
   }
   return best;
 }
+
+export function bestBodyweightRepsFromHistory(
+  sets: Pick<SetLog, 'reps' | 'weightKg'>[]
+): number | null {
+  let best: number | null = null;
+  for (const s of sets) {
+    if (s.reps == null || s.reps < 1) continue;
+    if (best == null || s.reps > best) best = s.reps;
+  }
+  return best;
+}
+
+export function isBodyweightRepsPrCandidate(
+  reps: number,
+  priorBestReps: number | null
+): boolean {
+  if (reps < 1) return false;
+  if (priorBestReps == null) return true;
+  return reps > priorBestReps;
+}
+
+export function bestDurationSecFromHistory(
+  sets: Pick<SetLog, 'durationSec'>[]
+): number | null {
+  let best: number | null = null;
+  for (const s of sets) {
+    if (s.durationSec == null || s.durationSec < 1) continue;
+    if (best == null || s.durationSec > best) best = s.durationSec;
+  }
+  return best;
+}
+
+export function isDurationPrCandidate(
+  durationSec: number,
+  priorBestSec: number | null
+): boolean {
+  if (durationSec < 1) return false;
+  if (priorBestSec == null) return true;
+  return durationSec > priorBestSec;
+}
+
+export function bestDistanceMFromHistory(
+  sets: Pick<SetLog, 'distanceM'>[]
+): number | null {
+  let best: number | null = null;
+  for (const s of sets) {
+    if (s.distanceM == null || s.distanceM <= 0) continue;
+    if (best == null || s.distanceM > best) best = s.distanceM;
+  }
+  return best;
+}
+
+export function isDistancePrCandidate(
+  distanceM: number,
+  priorBestM: number | null
+): boolean {
+  if (distanceM <= 0) return false;
+  if (priorBestM == null) return true;
+  return distanceM > priorBestM + 0.01;
+}

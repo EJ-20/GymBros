@@ -8,6 +8,13 @@ export type MuscleGroup =
   | 'cardio'
   | 'full_body';
 
+/** How sets are logged in the workout UI. */
+export type ExerciseTrackingMode =
+  | 'weight_reps'
+  | 'bodyweight_reps'
+  | 'time'
+  | 'time_distance';
+
 export interface Exercise {
   id: string;
   name: string;
@@ -15,6 +22,7 @@ export interface Exercise {
   equipment?: string;
   isCustom: boolean;
   createdAt: string;
+  trackingMode: ExerciseTrackingMode;
 }
 
 export interface WorkoutSession {
@@ -34,6 +42,8 @@ export interface SetLog {
   reps: number | null;
   weightKg: number | null;
   durationSec: number | null;
+  /** Meters; used with `time_distance` (e.g. run / treadmill). */
+  distanceM: number | null;
   rpe: number | null;
 }
 

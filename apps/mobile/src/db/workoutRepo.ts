@@ -2,6 +2,19 @@ import type { Exercise, SetLog, WorkoutSession, WorkoutTemplate } from '@gymbros
 import { randomUUID } from '@/src/lib/randomUUID';
 import { getDb } from './database';
 
+function normalizeTrackingMode(raw: unknown): Exercise['trackingMode'] {
+  const v = typeof raw === 'string' ? raw : 'weight_reps';
+  if (
+    v === 'weight_reps' ||
+    v === 'bodyweight_reps' ||
+    v === 'time' ||
+    v === 'time_distance'
+  ) {
+    return v;
+  }
+  return 'weight_reps';
+}
+
 function rowToExercise(r: Record<string, unknown>): Exercise {
   return {
     id: r.id as string,
@@ -10,6 +23,7 @@ function rowToExercise(r: Record<string, unknown>): Exercise {
     equipment: (r.equipment as string) ?? undefined,
     isCustom: Boolean(r.is_custom),
     createdAt: r.created_at as string,
+    trackingMode: normalizeTrackingMode(r.tracking_mode),
   };
 }
 
@@ -34,6 +48,7 @@ function rowToSet(r: Record<string, unknown>): SetLog {
     reps: r.reps != null ? Number(r.reps) : null,
     weightKg: r.weight_kg != null ? Number(r.weight_kg) : null,
     durationSec: r.duration_sec != null ? Number(r.duration_sec) : null,
+    distanceM: r.distance_m != null ? Number(r.distance_m) : null,
     rpe: r.rpe != null ? Number(r.rpe) : null,
   };
 }
@@ -49,23 +64,25 @@ export function listExercises(): Exercise[] {
 export function createExercise(
   name: string,
   muscleGroup: Exercise['muscleGroup'],
-  equipment?: string
+  options?: { equipment?: string; trackingMode?: Exercise['trackingMode'] }
 ): Exercise {
   const d = getDb();
   const id = randomUUID();
   const now = new Date().toISOString();
+  const trackingMode = options?.trackingMode ?? 'weight_reps';
   d.runSync(
-    `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, dirty)
-     VALUES (?, ?, ?, ?, 1, ?, 1)`,
-    [id, name, muscleGroup, equipment ?? null, now]
+    `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, tracking_mode, dirty)
+     VALUES (?, ?, ?, ?, 1, ?, ?, 1)`,
+    [id, name, muscleGroup, options?.equipment ?? null, now, trackingMode]
   );
   return {
     id,
     name,
     muscleGroup,
-    equipment,
+    equipment: options?.equipment,
     isCustom: true,
     createdAt: now,
+    trackingMode,
   };
 }
 
@@ -157,6 +174,7 @@ export function addSet(
     reps?: number | null;
     weightKg?: number | null;
     durationSec?: number | null;
+    distanceM?: number | null;
     rpe?: number | null;
   }
 ): SetLog {
@@ -168,8 +186,8 @@ export function addSet(
   );
   const orderIndex = (maxRow?.m ?? -1) + 1;
   d.runSync(
-    `INSERT INTO set_logs (id, session_id, exercise_id, order_index, reps, weight_kg, duration_sec, rpe, dirty)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT INTO set_logs (id, session_id, exercise_id, order_index, reps, weight_kg, duration_sec, distance_m, rpe, dirty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     [
       id,
       sessionId,
@@ -178,6 +196,7 @@ export function addSet(
       input.reps ?? null,
       input.weightKg ?? null,
       input.durationSec ?? null,
+      input.distanceM ?? null,
       input.rpe ?? null,
     ]
   );
@@ -189,6 +208,7 @@ export function addSet(
     reps: input.reps ?? null,
     weightKg: input.weightKg ?? null,
     durationSec: input.durationSec ?? null,
+    distanceM: input.distanceM ?? null,
     rpe: input.rpe ?? null,
   };
 }
@@ -240,10 +260,10 @@ export function getExerciseById(id: string): Exercise | null {
 export function listSetsForExerciseBeforeSession(
   exerciseId: string,
   excludeSessionId: string
-): Pick<SetLog, 'weightKg' | 'reps'>[] {
+): Pick<SetLog, 'weightKg' | 'reps' | 'durationSec' | 'distanceM'>[] {
   const d = getDb();
   const rows = d.getAllSync<Record<string, unknown>>(
-    `SELECT weight_kg, reps FROM set_logs sl
+    `SELECT weight_kg, reps, duration_sec, distance_m FROM set_logs sl
      JOIN workout_sessions ws ON ws.id = sl.session_id
      WHERE sl.exercise_id = ? AND sl.session_id != ? AND ws.ended_at IS NOT NULL`,
     [exerciseId, excludeSessionId]
@@ -251,6 +271,8 @@ export function listSetsForExerciseBeforeSession(
   return rows.map((r: Record<string, unknown>) => ({
     weightKg: r.weight_kg != null ? Number(r.weight_kg) : null,
     reps: r.reps != null ? Number(r.reps) : null,
+    durationSec: r.duration_sec != null ? Number(r.duration_sec) : null,
+    distanceM: r.distance_m != null ? Number(r.distance_m) : null,
   }));
 }
 
@@ -318,21 +340,24 @@ export function mergeExerciseFromRemote(
   name: string,
   muscleGroup: string,
   equipment: string | null,
-  createdAt: string
+  createdAt: string,
+  trackingMode: string | null
 ): void {
   const d = getDb();
+  const mode = normalizeTrackingMode(trackingMode ?? 'weight_reps');
   d.runSync(
-    `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, remote_id, dirty)
-     VALUES (?, ?, ?, ?, 1, ?, ?, 0)
+    `INSERT INTO exercises (id, name, muscle_group, equipment, is_custom, created_at, tracking_mode, remote_id, dirty)
+     VALUES (?, ?, ?, ?, 1, ?, ?, ?, 0)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        muscle_group = excluded.muscle_group,
        equipment = excluded.equipment,
        created_at = excluded.created_at,
+       tracking_mode = excluded.tracking_mode,
        remote_id = excluded.remote_id,
        dirty = 0
      WHERE exercises.dirty = 0`,
-    [clientLocalId, name, muscleGroup, equipment, createdAt, serverId]
+    [clientLocalId, name, muscleGroup, equipment, createdAt, mode, serverId]
   );
 }
 
@@ -379,12 +404,13 @@ export function mergeSetFromRemote(
   reps: number | null,
   weightKg: number | null,
   durationSec: number | null,
+  distanceM: number | null,
   rpe: number | null
 ): void {
   const d = getDb();
   d.runSync(
-    `INSERT INTO set_logs (id, session_id, exercise_id, order_index, reps, weight_kg, duration_sec, rpe, remote_id, dirty)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    `INSERT INTO set_logs (id, session_id, exercise_id, order_index, reps, weight_kg, duration_sec, distance_m, rpe, remote_id, dirty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
      ON CONFLICT(id) DO UPDATE SET
        session_id = excluded.session_id,
        exercise_id = excluded.exercise_id,
@@ -392,6 +418,7 @@ export function mergeSetFromRemote(
        reps = excluded.reps,
        weight_kg = excluded.weight_kg,
        duration_sec = excluded.duration_sec,
+       distance_m = excluded.distance_m,
        rpe = excluded.rpe,
        remote_id = excluded.remote_id,
        dirty = 0
@@ -404,6 +431,7 @@ export function mergeSetFromRemote(
       reps,
       weightKg,
       durationSec,
+      distanceM,
       rpe,
       serverId,
     ]

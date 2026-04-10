@@ -42,6 +42,7 @@ export async function syncToCloud(userId: string): Promise<{ error: string | nul
         muscle_group: ex.muscle_group,
         equipment: ex.equipment,
         created_at: ex.created_at,
+        tracking_mode: (ex.tracking_mode as string) ?? 'weight_reps',
       },
       { onConflict: 'user_id,client_local_id' }
     );
@@ -77,6 +78,7 @@ export async function syncToCloud(userId: string): Promise<{ error: string | nul
         reps: st.reps,
         weight_kg: st.weight_kg,
         duration_sec: st.duration_sec,
+        distance_m: st.distance_m,
         rpe: st.rpe,
       },
       { onConflict: 'user_id,client_local_id' }
@@ -111,6 +113,7 @@ type RemoteExercise = {
   muscle_group: string;
   equipment: string | null;
   created_at: string;
+  tracking_mode: string | null;
 };
 
 type RemoteSession = {
@@ -132,6 +135,7 @@ type RemoteSet = {
   reps: number | null;
   weight_kg: number | string | null;
   duration_sec: number | null;
+  distance_m: number | string | null;
   rpe: number | null;
 };
 
@@ -162,7 +166,7 @@ export async function pullFromCloud(): Promise<{
   const ex = await fetchAll<RemoteExercise>(
     sb,
     'exercises',
-    'id, client_local_id, name, muscle_group, equipment, created_at'
+    'id, client_local_id, name, muscle_group, equipment, created_at, tracking_mode'
   );
   if (ex.error) return { error: ex.error };
 
@@ -176,7 +180,7 @@ export async function pullFromCloud(): Promise<{
   const st = await fetchAll<RemoteSet>(
     sb,
     'set_logs',
-    'id, client_local_id, session_client_id, exercise_client_id, order_index, reps, weight_kg, duration_sec, rpe'
+    'id, client_local_id, session_client_id, exercise_client_id, order_index, reps, weight_kg, duration_sec, distance_m, rpe'
   );
   if (st.error) return { error: st.error };
 
@@ -194,7 +198,8 @@ export async function pullFromCloud(): Promise<{
       row.name,
       row.muscle_group,
       row.equipment ?? null,
-      row.created_at
+      row.created_at,
+      row.tracking_mode ?? null
     );
   }
 
@@ -217,6 +222,13 @@ export async function pullFromCloud(): Promise<{
         : typeof row.weight_kg === 'string'
           ? parseFloat(row.weight_kg)
           : row.weight_kg;
+    const distRaw = row.distance_m;
+    const distM =
+      distRaw === null || distRaw === undefined
+        ? null
+        : typeof distRaw === 'string'
+          ? parseFloat(distRaw)
+          : distRaw;
     repo.mergeSetFromRemote(
       row.id,
       row.client_local_id,
@@ -226,6 +238,7 @@ export async function pullFromCloud(): Promise<{
       row.reps != null ? Number(row.reps) : null,
       w != null && !Number.isNaN(w) ? w : null,
       row.duration_sec != null ? Number(row.duration_sec) : null,
+      distM != null && !Number.isNaN(distM) ? distM : null,
       row.rpe != null ? Number(row.rpe) : null
     );
   }
