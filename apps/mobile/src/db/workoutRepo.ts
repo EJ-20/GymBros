@@ -55,10 +55,15 @@ function rowToSet(r: Record<string, unknown>): SetLog {
 
 export function listExercises(): Exercise[] {
   const d = getDb();
-  const rows = d.getAllSync<Record<string, unknown>>(
-    'SELECT * FROM exercises ORDER BY is_custom ASC, name ASC'
-  );
-  return rows.map(rowToExercise);
+  const rows = d.getAllSync<Record<string, unknown>>('SELECT * FROM exercises');
+  const list = rows.map(rowToExercise);
+  const custom = list
+    .filter((e) => e.isCustom)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const builtin = list
+    .filter((e) => !e.isCustom)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [...custom, ...builtin];
 }
 
 export function createExercise(
@@ -86,6 +91,57 @@ export function createExercise(
   };
 }
 
+export function countSetsForExercise(exerciseId: string): number {
+  const d = getDb();
+  const r = d.getFirstSync<{ c: number }>(
+    'SELECT COUNT(*) as c FROM set_logs WHERE exercise_id = ?',
+    [exerciseId]
+  );
+  return Number(r?.c ?? 0);
+}
+
+/** Remove an exercise id from every non-deleted routine template (for custom exercise delete). */
+function stripExerciseIdFromTemplates(exerciseId: string): void {
+  for (const t of listTemplates()) {
+    if (!t.exerciseIds.includes(exerciseId)) continue;
+    const next = t.exerciseIds.filter((id) => id !== exerciseId);
+    updateTemplate(t.id, t.name, next);
+  }
+}
+
+export function updateCustomExercise(
+  id: string,
+  fields: {
+    name: string;
+    muscleGroup: Exercise['muscleGroup'];
+    trackingMode: Exercise['trackingMode'];
+  }
+): boolean {
+  const ex = getExerciseById(id);
+  if (!ex?.isCustom) return false;
+  const n = fields.name.trim();
+  if (!n) return false;
+  const d = getDb();
+  d.runSync(
+    `UPDATE exercises SET name = ?, muscle_group = ?, tracking_mode = ?, dirty = 1 WHERE id = ? AND is_custom = 1`,
+    [n, fields.muscleGroup, fields.trackingMode, id]
+  );
+  return true;
+}
+
+/**
+ * Deletes a custom exercise locally. CASCADE removes its set_logs rows.
+ * Strips the id from saved routines. Call `deleteExerciseFromCloud` when signed in.
+ */
+export function deleteCustomExercise(id: string): { ok: boolean } {
+  const ex = getExerciseById(id);
+  if (!ex?.isCustom) return { ok: false };
+  const d = getDb();
+  stripExerciseIdFromTemplates(id);
+  d.runSync('DELETE FROM exercises WHERE id = ? AND is_custom = 1', [id]);
+  return { ok: true };
+}
+
 export function listSessions(limit = 50): WorkoutSession[] {
   const d = getDb();
   const rows = d.getAllSync<Record<string, unknown>>(
@@ -93,6 +149,14 @@ export function listSessions(limit = 50): WorkoutSession[] {
     [limit]
   );
   return rows.map(rowToSession);
+}
+
+export function getSessionById(sessionId: string): WorkoutSession | null {
+  const d = getDb();
+  const r = d.getFirstSync<Record<string, unknown>>('SELECT * FROM workout_sessions WHERE id = ?', [
+    sessionId,
+  ]);
+  return r ? rowToSession(r) : null;
 }
 
 export function countCompletedSessions(): number {
@@ -165,6 +229,18 @@ export function listSetsForSession(sessionId: string): SetLog[] {
     [sessionId]
   );
   return rows.map(rowToSet);
+}
+
+/** Exercise ids for a session, most recently logged set first (for “This session” ordering). */
+export function sessionExerciseIdsByLatestSetFirst(sessionId: string): string[] {
+  const d = getDb();
+  const rows = d.getAllSync<{ exercise_id: string }>(
+    `SELECT exercise_id FROM set_logs WHERE session_id = ?
+     GROUP BY exercise_id
+     ORDER BY MAX(rowid) DESC`,
+    [sessionId]
+  );
+  return rows.map((r) => r.exercise_id);
 }
 
 export function addSet(

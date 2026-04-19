@@ -1,4 +1,6 @@
+import { KeyboardAvoidingScreen } from '@/src/components/KeyboardAvoidingScreen';
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
@@ -193,13 +195,14 @@ export default function ProfileEditScreen() {
   }
 
   return (
+    <KeyboardAvoidingScreen variant="modal" style={{ flex: 1, backgroundColor: c.background }}>
     <ScrollView
-        style={{ backgroundColor: c.background }}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        showsVerticalScrollIndicator={false}
-      >
+      style={{ backgroundColor: c.background }}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
+    >
         {!backendReady ? (
           <View style={[styles.callout, { backgroundColor: c.card, borderColor: c.border }]}>
             <Ionicons name="cloud-offline-outline" size={24} color={c.tint} style={{ marginTop: 2 }} />
@@ -385,6 +388,7 @@ export default function ProfileEditScreen() {
           </View>
         </View>
       </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }
 

@@ -75,6 +75,10 @@ export default function RootLayout() {
                       options={{ headerShown: true, title: 'Routine' }}
                     />
                     <Stack.Screen
+                      name="session-detail"
+                      options={{ headerShown: true, title: 'Workout details' }}
+                    />
+                    <Stack.Screen
                       name="profile"
                       options={{
                         title: 'Account',

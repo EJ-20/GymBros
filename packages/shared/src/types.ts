@@ -68,6 +68,21 @@ export interface FriendSummary {
   bestLiftLabel: string | null;
 }
 
+/** Result from server search for adding friends (display name or user id prefix). */
+export type ProfileSearchRelationship = 'none' | 'friend' | 'pending_out' | 'pending_in';
+
+export interface ProfileSearchHit {
+  userId: string;
+  displayName: string | null;
+  relationship: ProfileSearchRelationship;
+}
+
+export interface MyTrainingStats {
+  weeklyVolumeKg: number;
+  sessions7d: number;
+  bestLiftLabel: string | null;
+}
+
 export interface WorkoutTemplate {
   id: string;
   name: string;

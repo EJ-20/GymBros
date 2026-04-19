@@ -1,4 +1,6 @@
+import { KeyboardAvoidingScreen } from '@/src/components/KeyboardAvoidingScreen';
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
@@ -9,8 +11,6 @@ import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -92,13 +92,10 @@ export default function CoachScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: c.background }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={88}
-    >
+    <KeyboardAvoidingScreen variant="tab" style={{ flex: 1, backgroundColor: c.background }}>
       <FlatList
         ref={listRef}
+        {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
         data={messages}
         keyExtractor={(_, i) => String(i)}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 8 }}
@@ -157,7 +154,7 @@ export default function CoachScreen() {
           </Pressable>
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingScreen>
   );
 }
 

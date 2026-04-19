@@ -1,6 +1,7 @@
 import { getHomeDashboardStats } from '@/src/analytics/homeStats';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import * as repo from '@/src/db/workoutRepo';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
 import {
@@ -9,7 +10,7 @@ import {
   type GlobalBenchmarkPayload,
 } from '@/src/sync/benchmarks';
 import { Ionicons } from '@expo/vector-icons';
-import { Link } from 'expo-router';
+import { Link, type Href } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { I18nManager, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -170,7 +171,7 @@ export default function HomeScreen() {
           styles.content,
           { paddingBottom: 100 + Math.max(insets.bottom, 0) },
         ]}
-        showsVerticalScrollIndicator={false}
+        {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
       >
         <Text style={[styles.sectionLabel, styles.sectionLabelFirst, { color: c.textMuted }]}>
           Last 7 days
@@ -178,6 +179,8 @@ export default function HomeScreen() {
         <View style={styles.statGrid}>
           <StatTile
             c={c}
+            href="/(tabs)/history"
+            hrefAccessibilitySuffix="Opens past sessions."
             icon="calendar-outline"
             label="Sessions"
             value={String(last7.sessions)}
@@ -186,6 +189,8 @@ export default function HomeScreen() {
           />
           <StatTile
             c={c}
+            href="/(tabs)/leadership"
+            hrefAccessibilitySuffix="Opens Leadership."
             icon="trophy-outline"
             label="Leadership"
             value={leadershipTile.value}
@@ -240,10 +245,17 @@ export default function HomeScreen() {
             <Text style={[styles.wideTitle, { color: c.text }]}>Last 30 days</Text>
           </View>
           <View style={styles.wideRow}>
-            <View style={styles.wideCol}>
-              <Text style={[styles.wideValue, { color: c.text }]}>{last30.sessions}</Text>
-              <Text style={[styles.wideHint, { color: c.textMuted }]}>sessions</Text>
-            </View>
+            <Link href="/(tabs)/history" asChild>
+              <Pressable
+                style={styles.wideCol}
+                android_ripple={null}
+                accessibilityRole="link"
+                accessibilityLabel="Sessions in the last 30 days. Opens past sessions."
+              >
+                <Text style={[styles.wideValue, { color: c.text }]}>{last30.sessions}</Text>
+                <Text style={[styles.wideHint, { color: c.textMuted }]}>sessions</Text>
+              </Pressable>
+            </Link>
             <View style={[styles.wideDivider, { backgroundColor: c.border }]} />
             <View style={styles.wideCol}>
               <Text style={[styles.wideValue, { color: c.text }]}>{sessionsRank.value}</Text>
@@ -268,27 +280,36 @@ export default function HomeScreen() {
         ) : null}
 
         {lastSession ? (
-          <View style={[styles.lastCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <View style={styles.lastHeader}>
-              <Text style={[styles.sectionLabel, { color: c.textMuted, marginBottom: 0 }]}>Last session</Text>
-              <Text style={{ color: c.textMuted, fontSize: 13 }}>{formatCompactDate(lastSession.startedAt)}</Text>
-            </View>
-            <Text style={[styles.lastSessionHeadline, { color: c.text }]}>
-              {lastSetCount} set{lastSetCount === 1 ? '' : 's'}
-              {lastExerciseCount > 0
-                ? ` · ${lastExerciseCount} exercise${lastExerciseCount === 1 ? '' : 's'}`
-                : ''}
-              {lastSession.perceivedExertion != null ? ` · RPE ${lastSession.perceivedExertion}` : ''}
-            </Text>
-            <Text style={{ color: c.textMuted, fontSize: 14 }}>
-              {lastDurationMin != null ? `${lastDurationMin} min` : ''}
-            </Text>
-            {lastSession.notes ? (
-              <Text style={{ color: c.textMuted, fontSize: 14 }} numberOfLines={2}>
-                {lastSession.notes}
-              </Text>
-            ) : null}
-          </View>
+          <Link href="/(tabs)/history" asChild>
+            <Pressable
+              style={styles.lastCardCell}
+              android_ripple={null}
+              accessibilityRole="link"
+              accessibilityLabel="Last session. Opens past sessions."
+            >
+              <View style={[styles.lastCard, { backgroundColor: c.card, borderColor: c.border }]}>
+                <View style={styles.lastHeader}>
+                  <Text style={[styles.sectionLabel, { color: c.textMuted, marginBottom: 0 }]}>Last session</Text>
+                  <Text style={{ color: c.textMuted, fontSize: 13 }}>{formatCompactDate(lastSession.startedAt)}</Text>
+                </View>
+                <Text style={[styles.lastSessionHeadline, { color: c.text }]}>
+                  {lastSetCount} set{lastSetCount === 1 ? '' : 's'}
+                  {lastExerciseCount > 0
+                    ? ` · ${lastExerciseCount} exercise${lastExerciseCount === 1 ? '' : 's'}`
+                    : ''}
+                  {lastSession.perceivedExertion != null ? ` · RPE ${lastSession.perceivedExertion}` : ''}
+                </Text>
+                <Text style={{ color: c.textMuted, fontSize: 14 }}>
+                  {lastDurationMin != null ? `${lastDurationMin} min` : ''}
+                </Text>
+                {lastSession.notes ? (
+                  <Text style={{ color: c.textMuted, fontSize: 14 }} numberOfLines={2}>
+                    {lastSession.notes}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
+          </Link>
         ) : (
           <View style={[styles.emptyHint, { borderColor: c.border }]}>
             <Text style={{ color: c.textMuted, textAlign: 'center', lineHeight: 20 }}>
@@ -296,28 +317,6 @@ export default function HomeScreen() {
             </Text>
           </View>
         )}
-
-        <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Shortcuts</Text>
-        <View style={styles.shortcuts}>
-          <Link href="/routines" asChild>
-            <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
-              <Ionicons name="list-outline" size={22} color={c.tint} />
-              <Text style={[styles.shortcutText, { color: c.text }]}>Routines</Text>
-            </Pressable>
-          </Link>
-          <Link href="/(tabs)/history" asChild>
-            <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
-              <Ionicons name="calendar-outline" size={22} color={c.tint} />
-              <Text style={[styles.shortcutText, { color: c.text }]}>History</Text>
-            </Pressable>
-          </Link>
-          <Link href="/(tabs)/compare" asChild>
-            <Pressable style={[styles.shortcutBtn, { backgroundColor: c.card, borderColor: c.border }]}>
-              <Ionicons name="people-outline" size={22} color={c.tint} />
-              <Text style={[styles.shortcutText, { color: c.text }]}>Compare</Text>
-            </Pressable>
-          </Link>
-        </View>
       </ScrollView>
 
       <View
@@ -355,6 +354,8 @@ function StatTile({
   sub,
   hint,
   hintUp,
+  href,
+  hrefAccessibilitySuffix,
 }: {
   c: ReturnType<typeof useColors>;
   icon: keyof typeof Ionicons.glyphMap;
@@ -363,9 +364,13 @@ function StatTile({
   sub?: string;
   hint: string;
   hintUp?: boolean | null;
+  href?: Href;
+  /** Appended to "${label}: ${value}." for the link tile (VoiceOver / TalkBack). */
+  hrefAccessibilitySuffix?: string;
 }) {
-  return (
-    <View style={[styles.statTile, { backgroundColor: c.card, borderColor: c.border }]}>
+  const cardColors = { backgroundColor: c.card, borderColor: c.border };
+  const body = (
+    <>
       <View style={styles.statTileTop}>
         <Ionicons name={icon} size={18} color={c.tint} />
         <Text style={[styles.statLabel, { color: c.textMuted }]}>{label}</Text>
@@ -384,7 +389,24 @@ function StatTile({
       >
         {hint}
       </Text>
-    </View>
+    </>
+  );
+  if (href) {
+    return (
+      <Link href={href} asChild>
+        <Pressable
+          style={styles.statTileCell}
+          android_ripple={null}
+          accessibilityRole="link"
+          accessibilityLabel={`${label}: ${value}. ${hrefAccessibilitySuffix ?? 'Opens linked screen.'}`}
+        >
+          <View style={[styles.statTile, cardColors]}>{body}</View>
+        </Pressable>
+      </Link>
+    );
+  }
+  return (
+    <View style={[styles.statTileCell, styles.statTile, cardColors]}>{body}</View>
   );
 }
 
@@ -451,10 +473,13 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
   },
   statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
-  statTile: {
+  /** Grid slot only — keeps Link/Pressable from altering how the card face renders vs other tiles. */
+  statTileCell: {
     width: '48%',
     flexGrow: 1,
     minWidth: '47%',
+  },
+  statTile: {
     borderRadius: 14,
     borderWidth: 1,
     padding: 14,
@@ -475,7 +500,8 @@ const styles = StyleSheet.create({
   wideDivider: { width: 1, minHeight: 40, alignSelf: 'center' },
   insightCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginTop: 6 },
   insightTitle: { fontSize: 18, fontWeight: '700' },
-  lastCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginTop: 6, gap: 6 },
+  lastCardCell: { marginTop: 6 },
+  lastCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 6 },
   lastHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   lastSessionHeadline: { fontSize: 17, fontWeight: '700' },
   emptyHint: {
@@ -485,15 +511,4 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: 'dashed',
   },
-  shortcuts: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4, marginBottom: 8 },
-  shortcutBtn: {
-    flex: 1,
-    minWidth: '30%',
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 14,
-    alignItems: 'center',
-    gap: 6,
-  },
-  shortcutText: { fontSize: 13, fontWeight: '600' },
 });

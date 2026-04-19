@@ -18,6 +18,8 @@ export const Colors = {
     tabIconSelected: tint,
     danger: '#ef4444',
     overlay: 'rgba(0,0,0,0.45)',
+    /** iOS scroll indicator; dark on light backgrounds for contrast. */
+    scrollIndicatorStyle: 'black' as const,
   },
   dark: {
     text: '#f1f5f9',
@@ -32,6 +34,8 @@ export const Colors = {
     tabIconSelected: tint,
     danger: '#f87171',
     overlay: 'rgba(0,0,0,0.6)',
+    /** iOS scroll indicator; light on dark backgrounds for contrast. */
+    scrollIndicatorStyle: 'white' as const,
   },
 };
 

@@ -1,14 +1,14 @@
+import { KeyboardAvoidingScreen } from '@/src/components/KeyboardAvoidingScreen';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ElementRef } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -109,10 +109,7 @@ export default function SignUpScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.flex, { backgroundColor: c.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KeyboardAvoidingScreen variant="modal" style={[styles.flex, { backgroundColor: c.background }]}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -120,7 +117,7 @@ export default function SignUpScreen() {
           styles.scrollContent,
           { paddingBottom: Math.max(insets.bottom, 32) + 24 },
         ]}
-        showsVerticalScrollIndicator={false}
+        {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
       >
         <Text style={[styles.screenKicker, { color: c.tint }]}>New to GymBros?</Text>
         <Text style={[styles.screenTitle, { color: c.text }]}>Create account</Text>
@@ -369,7 +366,7 @@ export default function SignUpScreen() {
           <Text style={[styles.skip, { color: c.textMuted }]}>Continue without an account</Text>
         </Pressable>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingScreen>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
@@ -6,6 +7,7 @@ import * as repo from '@/src/db/workoutRepo';
 import { deleteSessionFromCloud } from '@/src/sync/syncEngine';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WorkoutSession } from '@gymbros/shared';
@@ -31,6 +33,7 @@ function formatSessionDateParts(iso: string): { date: string; time: string } {
 
 export default function HistoryScreen() {
   const c = useColors();
+  const router = useRouter();
   const { user, backendReady, localDataVersion } = useAuth();
   const showAlert = useAppAlert();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
@@ -78,6 +81,7 @@ export default function HistoryScreen() {
     <FlatList
       style={{ backgroundColor: c.background }}
       contentContainerStyle={styles.listContent}
+      {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
       data={sessions}
       keyExtractor={(s) => s.id}
       ListHeaderComponent={
@@ -136,24 +140,32 @@ export default function HistoryScreen() {
             ]}
           >
             <View style={[styles.cardAccent, { backgroundColor: c.tint }]} />
-            <View style={styles.cardInner}>
-              <View style={styles.cardHead}>
-                <View style={styles.dateBlock}>
-                  <Text style={[styles.dateLine, { color: c.text }]}>{date}</Text>
-                  <Text style={[styles.timeLine, { color: c.textMuted }]}>{time}</Text>
+            <Pressable
+              style={({ pressed }) => [styles.cardPress, pressed && { opacity: 0.97 }]}
+              onPress={() =>
+                router.push({ pathname: '/session-detail', params: { id: item.id } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Workout ${date}, ${setCount} sets. View details.`}
+            >
+              <View style={styles.cardInner}>
+                <View style={styles.cardHead}>
+                  <View style={styles.dateBlock}>
+                    <Text style={[styles.dateLine, { color: c.text }]}>{date}</Text>
+                    <Text style={[styles.timeLine, { color: c.textMuted }]}>{time}</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => confirmDelete(item)}
+                    hitSlop={12}
+                    accessibilityLabel="Delete workout"
+                    accessibilityRole="button"
+                    style={styles.deleteIconBtn}
+                  >
+                    <Ionicons name="trash-outline" size={20} color={c.danger} />
+                  </Pressable>
                 </View>
-                <Pressable
-                  onPress={() => confirmDelete(item)}
-                  hitSlop={12}
-                  accessibilityLabel="Delete workout"
-                  accessibilityRole="button"
-                  style={styles.deleteIconBtn}
-                >
-                  <Ionicons name="trash-outline" size={20} color={c.danger} />
-                </Pressable>
-              </View>
 
-              <View style={styles.metaGrid}>
+                <View style={styles.metaGrid}>
                 <View style={[styles.metaChip, { backgroundColor: c.background }]}>
                   <Ionicons name="time-outline" size={16} color={c.tint} />
                   <Text style={[styles.metaText, { color: c.text }]}>{mins} min</Text>
@@ -175,18 +187,19 @@ export default function HistoryScreen() {
                 ) : null}
               </View>
 
-              {item.notes ? (
-                <View style={[styles.notesBox, { backgroundColor: c.background, borderColor: c.border }]}>
-                  <View style={styles.notesHeader}>
-                    <Ionicons name="document-text-outline" size={14} color={c.textMuted} />
-                    <Text style={[styles.notesLabel, { color: c.textMuted }]}>Notes</Text>
+                {item.notes ? (
+                  <View style={[styles.notesBox, { backgroundColor: c.background, borderColor: c.border }]}>
+                    <View style={styles.notesHeader}>
+                      <Ionicons name="document-text-outline" size={14} color={c.textMuted} />
+                      <Text style={[styles.notesLabel, { color: c.textMuted }]}>Notes</Text>
+                    </View>
+                    <Text style={[styles.notesBody, { color: c.textMuted }]} numberOfLines={4}>
+                      {item.notes}
+                    </Text>
                   </View>
-                  <Text style={[styles.notesBody, { color: c.textMuted }]} numberOfLines={4}>
-                    {item.notes}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
+                ) : null}
+              </View>
+            </Pressable>
           </View>
         );
       }}
@@ -247,7 +260,8 @@ const styles = StyleSheet.create({
   },
   cardFirst: { marginTop: 8 },
   cardAccent: { width: 4 },
-  cardInner: { flex: 1, padding: 16, gap: 12 },
+  cardPress: { flex: 1 },
+  cardInner: { padding: 16, gap: 12 },
   cardHead: {
     flexDirection: 'row',
     justifyContent: 'space-between',

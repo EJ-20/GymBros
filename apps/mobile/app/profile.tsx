@@ -1,4 +1,5 @@
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
@@ -259,7 +260,7 @@ export default function ProfileScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
-      showsVerticalScrollIndicator={false}
+      {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
     >
 
 
@@ -310,7 +311,7 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Privacy · Compare</Text>
+          <Text style={[styles.sectionLabel, { color: c.textMuted }]}>Privacy · Leadership</Text>
           <View style={[styles.accentCard, { backgroundColor: c.card, borderColor: c.border }]}>
             <View style={[styles.cardAccent, { backgroundColor: c.tint }]} />
             <View style={styles.cardInner}>

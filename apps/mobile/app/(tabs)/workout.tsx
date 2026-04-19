@@ -13,9 +13,14 @@ import { useAuth } from '@/src/contexts/AuthContext';
 import { useToast } from '@/src/contexts/ToastContext';
 import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { useColors } from '@/src/hooks/useColors';
+import {
+  KeyboardAvoidingModalBody,
+  KeyboardAvoidingScreen,
+} from '@/src/components/KeyboardAvoidingScreen';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
 import * as repo from '@/src/db/workoutRepo';
-import { deleteSetLogFromCloud } from '@/src/sync/syncEngine';
+import { deleteExerciseFromCloud, deleteSetLogFromCloud } from '@/src/sync/syncEngine';
 import { openWorkoutDeepLink } from '@/src/watch/WatchBridge';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -37,7 +42,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ElementRef } fr
 import {
   AppState,
   type AppStateStatus,
+  Dimensions,
   FlatList,
+  InteractionManager,
   Keyboard,
   Modal,
   Platform,
@@ -125,25 +132,35 @@ export default function WorkoutScreen() {
   const [swTick, setSwTick] = useState(0);
   const [customMuscle, setCustomMuscle] = useState<Exercise['muscleGroup']>('full_body');
   const [customTracking, setCustomTracking] = useState<ExerciseTrackingMode>('weight_reps');
+  const [editingCustomExercise, setEditingCustomExercise] = useState<Exercise | null>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   /** When set, shows chips to jump through a saved routine (in-memory for this session). */
   const [routineExerciseIds, setRoutineExerciseIds] = useState<string[] | null>(null);
   const [elapsedNowMs, setElapsedNowMs] = useState(() => Date.now());
+  /** Bumps on tab focus so idle routine tiles always re-read SQLite (new/edited routines). */
+  const [routineListNonce, setRoutineListNonce] = useState(0);
   const exercises = repo.listExercises();
   const sortedIdleTemplates = useMemo(() => {
     const list = repo.listTemplates();
-    const presetSet = new Set<string>([...PRESET_ROUTINE_NAMES]);
-    const byName = new Map(list.map((t) => [t.name, t]));
+    const seen = new Set<string>();
     const ordered: WorkoutTemplate[] = [];
-    for (const n of PRESET_ROUTINE_NAMES) {
-      const t = byName.get(n);
-      if (t) ordered.push(t);
+    // Preset names first (one row each when present), then every other template by id — includes
+    // user-created routines even if they reuse a preset name like "Push day".
+    for (const name of PRESET_ROUTINE_NAMES) {
+      const t = list.find((x) => x.name === name);
+      if (t) {
+        ordered.push(t);
+        seen.add(t.id);
+      }
     }
     for (const t of list) {
-      if (!presetSet.has(t.name)) ordered.push(t);
+      if (!seen.has(t.id)) {
+        ordered.push(t);
+        seen.add(t.id);
+      }
     }
     return ordered;
-  }, [localDataVersion]);
+  }, [localDataVersion, routineListNonce]);
 
   const currentSessionId = () => session?.id ?? repo.getActiveSession()?.id ?? '';
 
@@ -163,7 +180,12 @@ export default function WorkoutScreen() {
     setSetsByExercise(map);
   }, []);
 
-  useFocusEffect(useCallback(() => refresh(), [refresh, localDataVersion]));
+  useFocusEffect(
+    useCallback(() => {
+      setRoutineListNonce((n) => n + 1);
+      refresh();
+    }, [refresh, localDataVersion])
+  );
 
   useEffect(() => {
     if (prevUnitRef.current === unit) return;
@@ -383,9 +405,84 @@ export default function WorkoutScreen() {
     showAlert('Saved', 'Open Routines in the header or Workout tab to edit it.');
   };
 
+  const openCreateCustomExercise = () => {
+    setEditingCustomExercise(null);
+    setCustomName('');
+    setCustomMuscle('full_body');
+    setCustomTracking('weight_reps');
+    // iOS: nested Modals (picker + custom form) often swallow touches or fail to show the second sheet.
+    setPickerOpen(false);
+    InteractionManager.runAfterInteractions(() => {
+      setCustomOpen(true);
+    });
+  };
+
+  const openEditCustomExercise = (ex: Exercise) => {
+    setEditingCustomExercise(ex);
+    setCustomName(ex.name);
+    setCustomMuscle(ex.muscleGroup);
+    setCustomTracking(ex.trackingMode);
+    setPickerOpen(false);
+    InteractionManager.runAfterInteractions(() => {
+      setCustomOpen(true);
+    });
+  };
+
+  const confirmDeleteCustomExercise = (ex: Exercise) => {
+    const setCount = repo.countSetsForExercise(ex.id);
+    const body =
+      setCount > 0
+        ? `Remove “${ex.name}” from your library? This deletes ${setCount} logged set${setCount === 1 ? '' : 's'} from your history on this device.`
+        : `Remove “${ex.name}” from your library?`;
+    showAlert('Delete exercise', body, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          if (user && backendReady) {
+            const { error, attempted } = await deleteExerciseFromCloud(ex.id);
+            if (error && attempted) {
+              showAlert(
+                'Cloud delete',
+                `${friendlyBackendError(error)}\n\nThe exercise will still be removed on this device.`
+              );
+            }
+          }
+          repo.deleteCustomExercise(ex.id);
+          setRoutineExerciseIds((ids) => (ids ? ids.filter((id) => id !== ex.id) : null));
+          if (selectedExerciseId === ex.id) setSelectedExerciseId(null);
+          setPickerOpen(false);
+          setCustomOpen(false);
+          setEditingCustomExercise(null);
+          refresh();
+        },
+      },
+    ]);
+  };
+
   const addCustom = () => {
     const name = customName.trim();
-    if (!name) return;
+    if (!name) {
+      showAlert('Name required', 'Enter a name for this exercise.');
+      return;
+    }
+    if (editingCustomExercise) {
+      const ok = repo.updateCustomExercise(editingCustomExercise.id, {
+        name,
+        muscleGroup: customMuscle,
+        trackingMode: customTracking,
+      });
+      if (!ok) {
+        showAlert('Could not update', 'Only custom exercises can be edited.');
+        return;
+      }
+      setEditingCustomExercise(null);
+      setCustomName('');
+      setCustomOpen(false);
+      refresh();
+      return;
+    }
     const ex = repo.createExercise(name, customMuscle, { trackingMode: customTracking });
     setCustomName('');
     setCustomOpen(false);
@@ -583,18 +680,26 @@ export default function WorkoutScreen() {
     ]);
   };
 
-  const exerciseRows = Object.keys(setsByExercise).map((id) => ({
-    exercise: repo.getExerciseById(id)!,
-    sets: setsByExercise[id],
-  }));
+  const exerciseRows = useMemo(() => {
+    if (!session) return [];
+    const order = repo.sessionExerciseIdsByLatestSetFirst(session.id);
+    return order
+      .map((id) => {
+        const exercise = repo.getExerciseById(id);
+        const sets = setsByExercise[id];
+        if (!exercise || !sets?.length) return null;
+        return { exercise, sets };
+      })
+      .filter((x): x is { exercise: Exercise; sets: SetLog[] } => x != null);
+  }, [session, setsByExercise]);
 
   if (!session) {
     return (
       <View style={[styles.idleRoot, { backgroundColor: c.background }]}>
         <ScrollView
           contentContainerStyle={styles.idleScroll}
-          showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
         >
           <View style={styles.idleHeaderRow}>
             <View style={styles.idleHeaderText}>
@@ -701,13 +806,19 @@ export default function WorkoutScreen() {
         </View>
       </View>
 
+      <KeyboardAvoidingScreen variant="tab" style={{ flex: 1 }}>
+        <View style={{ flex: 1 }}>
       {routineExerciseIds && routineExerciseIds.length > 0 ? (
         <View style={[styles.routineStrip, { backgroundColor: c.card, borderBottomColor: c.border }]}>
           <View style={styles.routineTitleRow}>
             <Ionicons name="git-branch-outline" size={16} color={c.textMuted} />
             <Text style={[styles.routineLabel, { color: c.textMuted }]}>Routine</Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+          <ScrollView
+            horizontal
+            contentContainerStyle={styles.chipRow}
+            {...contrastScrollProps(c.scrollIndicatorStyle, 'horizontal')}
+          >
             {routineExerciseIds.map((eid) => {
               const ex = repo.getExerciseById(eid);
               const active = selectedExerciseId === eid;
@@ -980,6 +1091,7 @@ export default function WorkoutScreen() {
       <FlatList
         data={exerciseRows}
         keyExtractor={(item) => item.exercise.id}
+        {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
         contentContainerStyle={{ padding: 16, paddingTop: 8, gap: 12, paddingBottom: 32 }}
         renderItem={({ item }) => (
           <View style={[styles.sessionCard, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -993,7 +1105,7 @@ export default function WorkoutScreen() {
               </Text>
             </View>
             <View style={[styles.setDivider, { backgroundColor: c.border }]} />
-            {item.sets.map((s) => (
+            {[...item.sets].reverse().map((s) => (
               <View key={s.id} style={styles.setRow}>
                 <View style={[styles.setBadge, { backgroundColor: c.background }]}>
                   <Text style={{ color: c.tint, fontWeight: '800', fontSize: 12 }}>{s.orderIndex + 1}</Text>
@@ -1026,64 +1138,123 @@ export default function WorkoutScreen() {
           </View>
         }
       />
+        </View>
+      </KeyboardAvoidingScreen>
 
-      <Modal visible={pickerOpen} animationType="slide" transparent>
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
         <View style={[styles.modalBackdrop, { backgroundColor: c.overlay }]}>
           <View style={[styles.modalCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <View style={styles.modalHeaderRow}>
-              <Ionicons name="list-outline" size={22} color={c.tint} />
-              <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
-                Exercises
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                setCustomMuscle('full_body');
-                setCustomTracking('weight_reps');
-                setCustomOpen(true);
-              }}
-              style={[styles.customExerciseBtn, { backgroundColor: c.background, borderColor: c.tint }]}
-            >
-              <Ionicons name="add-circle-outline" size={20} color={c.tint} />
-              <Text style={{ color: c.tint, fontWeight: '700', marginLeft: 8 }}>Custom exercise</Text>
-            </Pressable>
             <FlatList
               data={exercises}
               keyExtractor={(e) => e.id}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => pickExercise(item)}
-                  style={[styles.pickRow, { borderBottomColor: c.border }]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{item.name}</Text>
-                    <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>
-                      {String(item.muscleGroup).replace(/_/g, ' ')} ·{' '}
-                      {TRACKING_OPTIONS.find((o) => o.mode === item.trackingMode)?.label ?? 'Weight + reps'}
+              keyboardShouldPersistTaps="handled"
+              removeClippedSubviews={false}
+              style={{ maxHeight: Dimensions.get('window').height * 0.62 }}
+              {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
+              ListHeaderComponent={
+                <View>
+                  <View style={styles.modalHeaderRow}>
+                    <Ionicons name="list-outline" size={22} color={c.tint} />
+                    <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
+                      Exercises
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
+                  <Pressable
+                    onPress={openCreateCustomExercise}
+                    accessibilityRole="button"
+                    accessibilityLabel="Create custom exercise"
+                    style={[styles.customExerciseBtn, { backgroundColor: c.background, borderColor: c.tint }]}
+                  >
+                    <Ionicons name="add-circle-outline" size={20} color={c.tint} />
+                    <Text style={{ color: c.tint, fontWeight: '700', marginLeft: 8 }}>Custom exercise</Text>
+                  </Pressable>
+                  <Text style={{ color: c.textMuted, fontSize: 12, marginBottom: 10, lineHeight: 17 }}>
+                    Custom exercises are marked below — tap Edit on the right to change or delete.
+                  </Text>
+                </View>
+              }
+              ListFooterComponent={
+                <Pressable
+                  onPress={() => setPickerOpen(false)}
+                  style={[styles.modalCancelBtn, { backgroundColor: c.background }]}
+                >
+                  <Text style={{ color: c.text, fontWeight: '600' }}>Close</Text>
                 </Pressable>
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.pickRow, { borderBottomColor: c.border }]}>
+                  <Pressable
+                    onPress={() => pickExercise(item)}
+                    style={styles.pickRowMain}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{item.name}</Text>
+                      <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>
+                        {String(item.muscleGroup).replace(/_/g, ' ')} ·{' '}
+                        {TRACKING_OPTIONS.find((o) => o.mode === item.trackingMode)?.label ?? 'Weight + reps'}
+                        {item.isCustom ? (
+                          <Text style={{ color: c.tint, fontWeight: '700' }}>{' · Custom'}</Text>
+                        ) : null}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
+                  </Pressable>
+                  {item.isCustom ? (
+                    <View style={styles.pickRowActions}>
+                      <Pressable
+                        onPress={() => openEditCustomExercise(item)}
+                        hitSlop={12}
+                        accessibilityLabel="Edit custom exercise"
+                        accessibilityRole="button"
+                        style={styles.pickIconBtn}
+                      >
+                        <Ionicons name="create-outline" size={20} color={c.tint} />
+                        <Text style={[styles.pickActionLabel, { color: c.tint }]}>Edit</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => confirmDeleteCustomExercise(item)}
+                        hitSlop={10}
+                        accessibilityLabel="Delete custom exercise"
+                        accessibilityRole="button"
+                        style={styles.pickIconBtn}
+                      >
+                        <Ionicons name="trash-outline" size={22} color={c.danger} />
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </View>
               )}
             />
-            <Pressable
-              onPress={() => setPickerOpen(false)}
-              style={[styles.modalCancelBtn, { backgroundColor: c.background }]}
-            >
-              <Text style={{ color: c.text, fontWeight: '600' }}>Close</Text>
-            </Pressable>
           </View>
         </View>
       </Modal>
 
-      <Modal visible={customOpen} animationType="fade" transparent>
+      <Modal
+        visible={customOpen}
+        animationType="fade"
+        transparent
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+        onRequestClose={() => {
+          setEditingCustomExercise(null);
+          setCustomOpen(false);
+        }}
+      >
+        <KeyboardAvoidingModalBody offsetIOS={40}>
         <View style={[styles.modalBackdrop, { backgroundColor: c.overlay, justifyContent: 'center' }]}>
           <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border, maxHeight: '88%' }]}>
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
+            >
               <View style={styles.modalHeaderRow}>
                 <Ionicons name="create-outline" size={22} color={c.tint} />
                 <Text style={[styles.modalTitle, { color: c.text, marginBottom: 0, flex: 1 }]}>
-                  New exercise
+                  {editingCustomExercise ? 'Edit exercise' : 'New exercise'}
                 </Text>
               </View>
               <Text style={{ color: c.textMuted, fontSize: 13, marginBottom: 10 }}>Log type</Text>
@@ -1130,8 +1301,8 @@ export default function WorkoutScreen() {
               </Text>
               <ScrollView
                 horizontal
-                showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.muscleChipRow}
+                {...contrastScrollProps(c.scrollIndicatorStyle, 'horizontal')}
               >
                 {MUSCLE_GROUPS.map((mg) => {
                   const on = customMuscle === mg;
@@ -1173,17 +1344,32 @@ export default function WorkoutScreen() {
                 ]}
               />
               <Pressable style={[styles.primaryBtn, { backgroundColor: c.tint }]} onPress={addCustom}>
-                <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>Save & select</Text>
+                <Text style={[styles.primaryBtnText, { color: c.onTintLight }]}>
+                  {editingCustomExercise ? 'Save changes' : 'Save & select'}
+                </Text>
               </Pressable>
-              <Pressable onPress={() => setCustomOpen(false)} style={{ marginTop: 12, alignItems: 'center' }}>
+              <Pressable
+                onPress={() => {
+                  setEditingCustomExercise(null);
+                  setCustomOpen(false);
+                }}
+                style={{ marginTop: 12, alignItems: 'center' }}
+              >
                 <Text style={{ color: c.textMuted, fontWeight: '600' }}>Cancel</Text>
               </Pressable>
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingModalBody>
       </Modal>
 
-      <Modal visible={endWorkoutOpen} animationType="fade" transparent>
+      <Modal
+        visible={endWorkoutOpen}
+        animationType="fade"
+        transparent
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <KeyboardAvoidingModalBody offsetIOS={40}>
         <View style={[styles.modalBackdrop, { backgroundColor: c.overlay, justifyContent: 'center' }]}>
           <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
             <View style={styles.modalHeaderRow}>
@@ -1213,7 +1399,11 @@ export default function WorkoutScreen() {
               ]}
             />
             <Text style={{ color: c.textMuted, fontSize: 13, marginBottom: 8 }}>Session RPE</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rpeRow}>
+            <ScrollView
+              horizontal
+              contentContainerStyle={styles.rpeRow}
+              {...contrastScrollProps(c.scrollIndicatorStyle, 'horizontal')}
+            >
               <Pressable
                 onPress={() => setEndRpe(null)}
                 style={[
@@ -1267,9 +1457,16 @@ export default function WorkoutScreen() {
             </Pressable>
           </View>
         </View>
+        </KeyboardAvoidingModalBody>
       </Modal>
 
-      <Modal visible={saveRoutineOpen} animationType="fade" transparent>
+      <Modal
+        visible={saveRoutineOpen}
+        animationType="fade"
+        transparent
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <KeyboardAvoidingModalBody offsetIOS={40}>
         <View style={[styles.modalBackdrop, { backgroundColor: c.overlay, justifyContent: 'center' }]}>
           <View style={[styles.saveCard, { backgroundColor: c.card, borderColor: c.border }]}>
             <View style={styles.modalHeaderRow}>
@@ -1302,6 +1499,7 @@ export default function WorkoutScreen() {
             </Pressable>
           </View>
         </View>
+        </KeyboardAvoidingModalBody>
       </Modal>
     </View>
   );
@@ -1553,9 +1751,31 @@ const styles = StyleSheet.create({
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 10,
+    paddingRight: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  pickRowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  pickRowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 2,
+  },
+  pickIconBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  pickActionLabel: { fontSize: 13, fontWeight: '700' },
   saveCard: {
     marginHorizontal: 20,
     borderRadius: 18,

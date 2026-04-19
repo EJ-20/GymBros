@@ -1,6 +1,7 @@
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import * as repo from '@/src/db/workoutRepo';
 import type { WorkoutTemplate } from '@gymbros/shared';
 import { useRouter } from 'expo-router';
@@ -46,6 +47,7 @@ export default function RoutinesScreen() {
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <FlatList
         contentContainerStyle={styles.list}
+        {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
         data={templates}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={

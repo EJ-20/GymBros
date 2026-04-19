@@ -1,4 +1,5 @@
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import type { HealthDailySnapshot } from '@/src/health/healthRepo';
 import { fetchTodayStepCountFromDevice } from '@/src/health/deviceSteps';
 import { listRecentHealthDaily, localCalendarDayKey, mergeHealthDaily } from '@/src/health/healthRepo';
@@ -124,6 +125,7 @@ export default function HealthScreen() {
         paddingBottom: 24 + insets.bottom,
         paddingHorizontal: 16,
       }}
+      {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
     >
       <Text style={[styles.title, { color: c.text }]}>Health</Text>
       <Text style={[styles.subtitle, { color: c.textMuted }]}>

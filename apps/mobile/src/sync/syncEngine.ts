@@ -326,6 +326,34 @@ export async function deleteSetLogFromCloud(
   return { error: null, attempted: true };
 }
 
+/** Deletes a custom exercise from Supabase (sets for that exercise, then the exercise row). */
+export async function deleteExerciseFromCloud(
+  exerciseClientLocalId: string
+): Promise<{ error: string | null; attempted: boolean }> {
+  if (!supabaseConfigured) return { error: null, attempted: false };
+  const sb = getSupabase();
+  if (!sb) return { error: null, attempted: false };
+  const { data: auth } = await sb.auth.getUser();
+  if (!auth.user) return { error: null, attempted: false };
+  const uid = auth.user.id;
+
+  const { error: e1 } = await sb
+    .from('set_logs')
+    .delete()
+    .eq('user_id', uid)
+    .eq('exercise_client_id', exerciseClientLocalId);
+  if (e1) return { error: e1.message, attempted: true };
+
+  const { error: e2 } = await sb
+    .from('exercises')
+    .delete()
+    .eq('user_id', uid)
+    .eq('client_local_id', exerciseClientLocalId);
+  if (e2) return { error: e2.message, attempted: true };
+
+  return { error: null, attempted: true };
+}
+
 export type BenchmarkSex = 'male' | 'female' | 'non_binary' | 'prefer_not';
 
 function parseBenchmarkSex(v: unknown): BenchmarkSex | null {

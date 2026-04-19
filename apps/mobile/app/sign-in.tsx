@@ -1,4 +1,6 @@
+import { KeyboardAvoidingScreen } from '@/src/components/KeyboardAvoidingScreen';
 import { useColors } from '@/src/hooks/useColors';
+import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { friendlyBackendError } from '@/src/lib/friendlyError';
@@ -7,8 +9,6 @@ import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -56,10 +56,7 @@ export default function SignInScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.flex, { backgroundColor: c.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KeyboardAvoidingScreen variant="modal" style={[styles.flex, { backgroundColor: c.background }]}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -67,7 +64,7 @@ export default function SignInScreen() {
           styles.scrollContent,
           { paddingBottom: Math.max(insets.bottom, 28) + 16 },
         ]}
-        showsVerticalScrollIndicator={false}
+        {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
       >
         <View style={styles.hero}>
           <View style={[styles.heroRing, { borderColor: c.border, backgroundColor: c.card }]}>
@@ -80,7 +77,7 @@ export default function SignInScreen() {
 
         <Text style={[styles.headline, { color: c.text }]}>Sign in to GymBros</Text>
         <Text style={[styles.lede, { color: c.textMuted }]}>
-          Back up workouts to the cloud, sync across devices, and use Compare with friends. You can
+          Back up workouts to the cloud, sync across devices, and use Leadership with friends. You can
           still train without an account—data stays on this device until you sign in. After you sign in,
           open Account and tap the settings icon to complete{' '}
           <Text style={{ fontWeight: '800', color: c.text }}>Edit profile</Text> (gender, body weight,
@@ -182,7 +179,7 @@ export default function SignInScreen() {
           <Text style={[styles.skip, { color: c.tint }]}>Continue without an account</Text>
         </Pressable>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingScreen>
   );
 }
 

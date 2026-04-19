@@ -19,6 +19,8 @@ module.exports = {
         backgroundColor: '#0f1419',
       },
       package: 'com.gymbros.app',
+      /** Resize the app when the keyboard opens so focused fields stay visible. */
+      softwareKeyboardLayoutMode: 'resize',
     },
     web: {
       bundler: 'metro',

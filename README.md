@@ -1,6 +1,6 @@
 # GymBros
 
-Mobile-first gym tracker: local workout logging, Supabase sync, friends-only stat comparison, and an AI coach (OpenAI via Supabase Edge Function).
+Mobile-first gym tracker: local workout logging, Supabase sync, friends-only stats on the Leadership tab, and an AI coach (OpenAI via Supabase Edge Function).
 
 ## Structure
 
