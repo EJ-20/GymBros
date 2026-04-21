@@ -19,20 +19,21 @@ import {
 } from 'react-native';
 
 type Msg = { role: 'user' | 'assistant'; text: string };
+const initialCoachMessage =
+  "I'm your GymBros coach. Ask about programming, RPE, or your recent sessions. Not medical advice.";
+
+type CoachApiResponse = { reply?: string; error?: string; threadId?: string };
 
 export default function CoachScreen() {
   const c = useColors();
   const { user, backendReady } = useAuth();
   const { unit } = useWeightUnit();
   const showAlert = useAppAlert();
-  const [messages, setMessages] = useState<Msg[]>([
-    {
-      role: 'assistant',
-      text: "I'm your GymBros coach. Ask about programming, RPE, or your recent sessions. Not medical advice.",
-    },
-  ]);
+  const [messages, setMessages] = useState<Msg[]>([{ role: 'assistant', text: initialCoachMessage }]);
   const [input, setInput] = useState('');
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const listRef = useRef<ComponentRef<typeof FlatList>>(null);
 
   useEffect(() => {
@@ -42,9 +43,81 @@ export default function CoachScreen() {
     return () => clearTimeout(t);
   }, [messages.length, sending]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHistory = async () => {
+      if (!user || !backendReady) {
+        setThreadId(null);
+        setMessages([{ role: 'assistant', text: initialCoachMessage }]);
+        return;
+      }
+
+      const sb = getSupabase();
+      if (!sb) return;
+
+      setLoadingHistory(true);
+      const { data: threads, error: threadError } = await sb
+        .from('coach_threads')
+        .select('id')
+        .order('updated_at', { ascending: false })
+        .limit(1);
+      if (threadError) {
+        if (!cancelled) {
+          setMessages([{ role: 'assistant', text: initialCoachMessage }]);
+          setThreadId(null);
+          showAlert('Coach', `Could not load coach history: ${threadError.message}`);
+        }
+        return;
+      }
+
+      const latestThreadId = threads?.[0]?.id ?? null;
+      if (!latestThreadId) {
+        if (!cancelled) {
+          setMessages([{ role: 'assistant', text: initialCoachMessage }]);
+          setThreadId(null);
+        }
+        return;
+      }
+
+      const { data: rows, error: msgError } = await sb
+        .from('coach_messages')
+        .select('role, content')
+        .eq('thread_id', latestThreadId)
+        .order('created_at', { ascending: true })
+        .limit(120);
+      if (msgError) {
+        if (!cancelled) {
+          setMessages([{ role: 'assistant', text: initialCoachMessage }]);
+          setThreadId(latestThreadId);
+          showAlert('Coach', `Could not load messages: ${msgError.message}`);
+        }
+        return;
+      }
+
+      if (cancelled) return;
+      const chatMessages: Msg[] = [];
+      for (const row of rows ?? []) {
+        if (row.role === 'user' || row.role === 'assistant') {
+          chatMessages.push({ role: row.role, text: row.content });
+        }
+      }
+      setThreadId(latestThreadId);
+      setMessages(chatMessages.length ? chatMessages : [{ role: 'assistant', text: initialCoachMessage }]);
+    };
+
+    loadHistory().finally(() => {
+      if (!cancelled) setLoadingHistory(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, showAlert, user]);
+
   const send = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || loadingHistory) return;
     if (!user || !backendReady) {
       showAlert('Sign in', 'Coach uses your cloud session. Open Sign in from the person menu.');
       return;
@@ -59,13 +132,13 @@ export default function CoachScreen() {
     setSending(true);
 
     const contextSummary = buildCoachContextSummary(8, unit);
-    const apiMessages = threaded.map((m) => ({
-      role: m.role,
-      content: m.text,
-    }));
-
     const { data, error } = await sb.functions.invoke('ai-coach', {
-      body: { messages: apiMessages, contextSummary },
+      body: {
+        threadId: threadId ?? undefined,
+        userMessage: text,
+        messages: threaded.map((m) => ({ role: m.role, content: m.text })),
+        contextSummary,
+      },
     });
 
     setSending(false);
@@ -78,8 +151,12 @@ export default function CoachScreen() {
       );
       return;
     }
-    const reply = (data as { reply?: string; error?: string })?.reply;
-    const err = (data as { error?: string })?.error;
+    const payload = (data as CoachApiResponse | null) ?? null;
+    const reply = payload?.reply;
+    const err = payload?.error;
+    if (payload?.threadId && payload.threadId !== threadId) {
+      setThreadId(payload.threadId);
+    }
     if (err) {
       showAlert('Coach', err);
       return;
@@ -135,6 +212,9 @@ export default function CoachScreen() {
             ) : null}
           </View>
         ) : null}
+        {loadingHistory ? (
+          <Text style={{ color: c.textMuted, fontSize: 13, marginBottom: 8 }}>Loading coach history…</Text>
+        ) : null}
         {sending ? <ActivityIndicator color={c.tint} style={{ marginBottom: 8 }} /> : null}
         <View style={styles.inputRow}>
           <TextInput
@@ -147,8 +227,11 @@ export default function CoachScreen() {
           />
           <Pressable
             onPress={send}
-            disabled={sending}
-            style={[styles.send, { backgroundColor: c.tint, opacity: sending ? 0.5 : 1 }]}
+            disabled={sending || loadingHistory}
+            style={[
+              styles.send,
+              { backgroundColor: c.tint, opacity: sending || loadingHistory ? 0.5 : 1 },
+            ]}
           >
             <Text style={[styles.sendText, { color: c.onTint }]}>Send</Text>
           </Pressable>

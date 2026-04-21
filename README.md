@@ -120,15 +120,26 @@ Optional: **Authentication** → **Rate limits** — relax or disable for dev if
 
 ### AI coach (optional)
 
-Deploy the Edge function and secrets:
+The Coach tab now uses a persisted thread model (`coach_threads`, `coach_messages`) and a tool-calling Edge function that can read the user’s workout history (recent sessions, exercise progress, volume trend).
+
+Apply migrations first, then deploy the Edge function and secrets:
 
 ```bash
+supabase db push
 supabase secrets set OPENAI_API_KEY=sk-...
 supabase secrets set OPENAI_MODEL=gpt-4o-mini
 supabase functions deploy ai-coach
 ```
 
 Keep JWT verification enabled (default). The Edge runtime provides `SUPABASE_URL` and `SUPABASE_ANON_KEY` automatically.
+
+Coach request payload supports:
+
+- `threadId` (optional): continue an existing conversation thread
+- `userMessage` (recommended): latest user turn text
+- `contextSummary` (optional): device-side summary of recent local sessions
+
+If `threadId` is omitted, the function creates a new thread and returns `threadId` with the assistant reply.
 
 ### Optional: script-created test user
 
