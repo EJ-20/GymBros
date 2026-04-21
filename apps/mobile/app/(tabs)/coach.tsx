@@ -7,7 +7,7 @@ import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { buildCoachContextSummary } from '@/src/lib/coachContext';
 import { getSupabase } from '@/src/lib/supabase';
 import { Link } from 'expo-router';
-import { useEffect, useRef, useState, type ComponentRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -34,7 +34,7 @@ export default function CoachScreen() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const listRef = useRef<ComponentRef<typeof FlatList>>(null);
+  const listRef = useRef<FlatList<Msg>>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -170,7 +170,7 @@ export default function CoachScreen() {
 
   return (
     <KeyboardAvoidingScreen variant="tab" style={{ flex: 1, backgroundColor: c.background }}>
-      <FlatList
+      <FlatList<Msg>
         ref={listRef}
         {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
         data={messages}
