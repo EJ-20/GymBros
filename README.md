@@ -45,6 +45,22 @@ Start the app:
 npm run start --workspace=apps/mobile
 ```
 
+## Mobile release (iOS + Android)
+
+Production build/release uses **EAS Build** and **EAS Submit** from `apps/mobile`.
+
+Quick start:
+
+```bash
+cd apps/mobile
+npx eas login
+npx eas build:configure
+npx eas build --platform ios --profile production
+npx eas build --platform android --profile production
+```
+
+For full step-by-step release workflow (version bump, store submission, OTA updates), see [apps/mobile/RELEASE.md](apps/mobile/RELEASE.md).
+
 **Web:** Workouts use [sql.js](https://sql.js.org/) (WASM loaded from `sql.js.org`) because the `expo-sqlite` npm package does not ship `wa-sqlite.wasm`, so the browser never loads `expo-sqlite`’s broken web worker. iOS/Android still use `expo-sqlite` on device. The first web load needs network access to fetch the WASM file.
 
 **Routines:** Saved in `workout_templates` (exercise order). Create/edit under **Routines** (from Home or Workout), **Start from routine** on the Workout tab, or **Save as routine** during an active session (order follows first logged set per exercise). They sync with **Account → Sync** once the `workout_templates` table exists in Supabase (second migration file).
@@ -120,15 +136,26 @@ Optional: **Authentication** → **Rate limits** — relax or disable for dev if
 
 ### AI coach (optional)
 
-Deploy the Edge function and secrets:
+The Coach tab now uses a persisted thread model (`coach_threads`, `coach_messages`) and a tool-calling Edge function that can read the user’s workout history (recent sessions, exercise progress, volume trend).
+
+Apply migrations first, then deploy the Edge function and secrets:
 
 ```bash
+supabase db push
 supabase secrets set OPENAI_API_KEY=sk-...
 supabase secrets set OPENAI_MODEL=gpt-4o-mini
 supabase functions deploy ai-coach
 ```
 
 Keep JWT verification enabled (default). The Edge runtime provides `SUPABASE_URL` and `SUPABASE_ANON_KEY` automatically.
+
+Coach request payload supports:
+
+- `threadId` (optional): continue an existing conversation thread
+- `userMessage` (recommended): latest user turn text
+- `contextSummary` (optional): device-side summary of recent local sessions
+
+If `threadId` is omitted, the function creates a new thread and returns `threadId` with the assistant reply.
 
 ### Optional: script-created test user
 
