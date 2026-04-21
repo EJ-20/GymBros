@@ -1,126 +1,212 @@
 # GymBros
 
-Mobile-first gym tracker: local workout logging, Supabase sync, friends-only stats on the Leadership tab, and an AI coach (OpenAI via Supabase Edge Function).
+GymBros is a mobile-first workout tracker with:
 
-## Structure
+- **Offline-first logging** (SQLite on device)
+- **Cloud sync** (Supabase)
+- **Social comparison** in the Leadership tab (friends + benchmark stats)
+- **AI coaching** powered by OpenAI through a Supabase Edge Function
 
-- [apps/web](apps/web) — Marketing / landing site (Vite static HTML + CSS)
-- [apps/mobile](apps/mobile) — Expo (React Native) app
-- [packages/shared](packages/shared) — Shared TypeScript types, Zod schemas, PR helpers
-- [supabase/migrations](supabase/migrations) — Postgres schema, RLS, `friend_compare_stats` RPC
-- [supabase/functions/ai-coach](supabase/functions/ai-coach) — Deno edge function calling OpenAI
+This repository is a monorepo containing the mobile app, marketing website, shared TypeScript packages, and backend database/function code.
 
-## Marketing site
+## Table of contents
 
-Landing page for the project (features, use cases, stack). From the repo root after `npm install`:
+- [Project overview](#project-overview)
+- [Technology stack](#technology-stack)
+- [Repository structure](#repository-structure)
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Environment variables](#environment-variables)
+- [Running the apps](#running-the-apps)
+- [Supabase setup](#supabase-setup)
+- [AI coach setup (optional)](#ai-coach-setup-optional)
+- [Data model and sync behavior](#data-model-and-sync-behavior)
+- [Utility scripts](#utility-scripts)
+- [Deployment](#deployment)
+- [Watch companion notes](#watch-companion-notes)
+- [Troubleshooting](#troubleshooting)
+- [Security notes](#security-notes)
+- [License](#license)
 
-```bash
-npm run web        # dev server (default http://localhost:5174)
-npm run web:build  # static output in apps/web/dist — deploy to any static host
+## Project overview
+
+### What GymBros solves
+
+GymBros is designed for people who want to track training consistently even with spotty internet. Workouts are logged locally first, then synced to Supabase when the user chooses to sync.
+
+### Core product areas
+
+- **Workout logging:** sessions, sets, exercises, routines/templates
+- **History:** local and synced session history
+- **Leadership:** friend comparison and benchmark-focused statistics
+- **Coach:** conversational AI training guidance
+- **Health tab:** daily health snapshot surfaces (with watch/bridge-oriented support in progress)
+
+## Technology stack
+
+### Frontend / apps
+
+- **Mobile app:** Expo + React Native + TypeScript + Expo Router  
+  (`apps/mobile`, Expo SDK `~54.0.0`, React Native `0.81.5`, React `19.1.0`)
+- **Marketing site:** Vite static site (`apps/web`, Vite `^6.3.5`)
+
+### Data / backend
+
+- **Database + Auth + API:** Supabase (Postgres + Auth + PostgREST)
+- **Row-level security:** managed via SQL migrations in `supabase/migrations`
+- **AI coach service:** Supabase Edge Function (Deno runtime) calling OpenAI Chat Completions
+
+### Shared package
+
+- **`@gymbros/shared`**: shared types/schemas/helpers used across app code (`packages/shared`)
+- **Validation:** Zod (`zod`)
+
+### Storage details
+
+- **Native (iOS/Android):** `expo-sqlite`
+- **Web runtime:** `sql.js` (WASM) fallback path for workout storage behavior
+
+## Repository structure
+
+```text
+.
+|-- apps
+|   |-- mobile                # Expo React Native app
+|   `-- web                   # Vite marketing site
+|-- packages
+|   `-- shared                # Shared TypeScript + Zod schemas/helpers
+|-- scripts
+|   |-- check-supabase.mjs    # Validate Supabase URL/key health
+|   `-- create-test-user.mjs  # Create confirmed test user via Admin API
+|-- supabase
+|   |-- migrations            # Postgres schema + RLS + RPCs
+|   `-- functions/ai-coach    # Edge function for AI coach
+`-- .github/workflows
+    `-- deploy-web.yml        # GitHub Pages deployment for apps/web
 ```
 
 ## Prerequisites
 
-- **Node.js 20.19+** (required by Expo SDK 54)
-- **Expo Go** on your phone must match **SDK 54** (update from the store if the app complains)
-- [Supabase CLI](https://supabase.com/docs/guides/cli) (for migrations and functions)
+- **Node.js 20.19+** (Expo SDK 54 requirement)
+- **npm** (workspaces are used from repo root)
+- **Expo Go** matching SDK 54 (for local device testing)
+- **Supabase CLI** (recommended for migrations and function deployment)
 
-## Mobile setup
+## Quick start
+
+From the repository root:
 
 ```bash
-cd /path/to/GymBros
 npm install
-cd apps/mobile
-cp .env.example .env 2>/dev/null || cp ../../.env.example .env  # optional
+cp .env.example apps/mobile/.env
 ```
 
-Set environment variables (or `apps/mobile/.env` with Expo):
-
-- `EXPO_PUBLIC_SUPABASE_URL`
-- `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-
-Start the app:
+Populate the copied env file with your Supabase project URL and anon key, then:
 
 ```bash
-npm run start --workspace=apps/mobile
+npm run check-supabase
+npm run mobile
 ```
 
-**Web:** Workouts use [sql.js](https://sql.js.org/) (WASM loaded from `sql.js.org`) because the `expo-sqlite` npm package does not ship `wa-sqlite.wasm`, so the browser never loads `expo-sqlite`’s broken web worker. iOS/Android still use `expo-sqlite` on device. The first web load needs network access to fetch the WASM file.
+If you only need the marketing site:
 
-**Routines:** Saved in `workout_templates` (exercise order). Create/edit under **Routines** (from Home or Workout), **Start from routine** on the Workout tab, or **Save as routine** during an active session (order follows first logged set per exercise). They sync with **Account → Sync** once the `workout_templates` table exists in Supabase (second migration file).
+```bash
+npm run web
+```
 
-**Sync:** Account → **Sync (push + pull)** uploads dirty local rows, then downloads `exercises`, `workout_sessions`, `set_logs`, and `workout_templates` from Supabase and merges them into SQLite. Local rows still marked dirty (unsent changes) are not overwritten on pull until you sync again after a successful push.
+## Environment variables
+
+Reference file: [`.env.example`](.env.example)
+
+### Mobile app variables (required)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `EXPO_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL used by the client app |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes | Public anon key used by the client app |
+| `EXPO_PUBLIC_SUPABASE_KEY` | No (alias) | Alternate env name accepted by app code |
+
+### Local tooling variables (optional)
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Direct Postgres connection for SQL tools (not used by mobile app) |
+| `SUPABASE_URL` | Used by `scripts/create-test-user.mjs` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required for Admin API test user creation |
+| `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` | Optional defaults for test user script |
+
+## Running the apps
+
+### Mobile app (`apps/mobile`)
+
+Start options:
+
+```bash
+npm run mobile                 # alias for workspace start (LAN mode)
+npm run start --workspace=apps/mobile
+npm run start:tunnel --workspace=apps/mobile
+npm run android --workspace=apps/mobile
+npm run ios --workspace=apps/mobile
+npm run web --workspace=apps/mobile
+```
+
+Lint:
+
+```bash
+npm run lint
+```
+
+### Marketing site (`apps/web`)
+
+```bash
+npm run web        # vite dev server, default http://localhost:5174
+npm run web:build  # outputs static site at apps/web/dist
+```
 
 ## Supabase setup
 
-### What you need from the dashboard
+### 1) Get API values from dashboard
 
-Copy into `apps/mobile/.env`:
+In Supabase dashboard:
 
-| Variable | Where in Supabase |
-|----------|-------------------|
-| `EXPO_PUBLIC_SUPABASE_URL` | **Project Settings** → **API** → **Project URL** |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | **Project Settings** → **API** → **anon public** key |
+- **Project Settings -> API -> Project URL** -> `EXPO_PUBLIC_SUPABASE_URL`
+- **Project Settings -> API -> anon public key** -> `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 
-Use the **anon** key in the app only — never the **service_role** key.
+Use only the **anon** key in the mobile app. Never use `service_role` in client code.
 
-### Postgres connection string (SQL clients, not the Expo app)
+### 2) Link and apply schema migrations
 
-The mobile app does **not** use this URI; it uses the HTTP URL and anon key above. Use the connection string for **psql**, GUI clients, or other direct Postgres tools.
-
-| Field | Value |
-|-------|--------|
-| Host | `db.<project-ref>.supabase.co` (from **Project Settings** → **Database**) |
-| Port | `5432` |
-| Database | `postgres` |
-| User | `postgres` |
-| Password | **Database password** from the same screen (set or reset if you do not have it) |
-
-URI form (replace `[YOUR-PASSWORD]` and the host with your project):
-
-```text
-postgresql://postgres:[YOUR-PASSWORD]@db.<project-ref>.supabase.co:5432/postgres
-```
-
-Optional: set `DATABASE_URL` in a **local** `.env` (never commit the real password) — see [`.env.example`](.env.example).
-
-### Cursor: Supabase Agent Skills (optional)
-
-For Postgres-focused help in the editor, install [Supabase agent skills](https://github.com/supabase/agent-skills) from the repo root:
+From repository root:
 
 ```bash
-npx skills add supabase/agent-skills --yes
+supabase link
+supabase db push
 ```
 
-This adds skills under `.agents/skills/` (listed in `.gitignore` so passwords and vendored copies stay out of git; reinstall on a new machine with the same command).
+If you are applying manually in SQL Editor, run migration files in filename order from [`supabase/migrations`](supabase/migrations):
 
-### Email sign-up (so you can test “Create account” in the app)
+1. `20250330000000_initial.sql`
+2. `20250330100000_workout_templates.sql`
+3. `20250330200000_global_benchmarks.sql`
+4. `20250330300000_benchmark_demographics.sql`
+5. `20250330400000_weight_unit.sql`
+6. `20260330120000_compare_search_and_stats.sql`
+7. `20260410120000_exercise_tracking_and_set_distance.sql`
 
-1. **Authentication** → **Providers** → **Email** → enable it (toggle on).
-2. **Authentication** → **Providers** → **Email**:
-   - For the quickest local loop: turn **off** “Confirm email” (users are signed in immediately after sign-up).
-   - For production-like behavior: leave **Confirm email** **on**; after **Create account**, open the link in the email Supabase sends, then use **Sign in** in the app.
+### 3) Configure email auth for app sign-up
 
-Optional: **Authentication** → **Rate limits** — relax or disable for dev if sign-up is throttled.
+In Supabase:
 
-### Database and project link
+1. **Authentication -> Providers -> Email**: enable Email provider.
+2. Decide confirmation behavior:
+   - For fast local iteration: disable email confirmation.
+   - For production-like flow: keep confirmation enabled and verify via email.
 
-**Sync and social features only work after this schema exists on your project.** If you skip it, the app may show PostgREST errors like *could not find the table `public.workout_sessions` in the schema cache*.
+## AI coach setup (optional)
 
-1. Create a project (if you have not already) and link the repo: `supabase link` (needs [Supabase CLI](https://supabase.com/docs/guides/cli) login).
-2. Apply migrations from the repo root:
+The AI coach is a Supabase Edge Function in `supabase/functions/ai-coach`.
 
-   ```bash
-   supabase db push
-   ```
-
-   **Or without the CLI:** **SQL Editor** → run each file in [supabase/migrations](supabase/migrations) in filename order (e.g. `20250330000000_initial.sql`, then [20250330100000_workout_templates.sql](supabase/migrations/20250330100000_workout_templates.sql), then [20250330200000_global_benchmarks.sql](supabase/migrations/20250330200000_global_benchmarks.sql), then [20250330300000_benchmark_demographics.sql](supabase/migrations/20250330300000_benchmark_demographics.sql) for sex / height / training-year cohort fields, then [20250330400000_weight_unit.sql](supabase/migrations/20250330400000_weight_unit.sql) for `profiles.weight_unit` (kg vs lb display preference)).
-
-3. If tables already exist but the API still complains, wait a minute or in **Project Settings** → **API** use options to refresh/restart if your plan shows them; usually a fresh `db push` is enough.
-
-### AI coach (optional)
-
-Deploy the Edge function and secrets:
+Set secrets and deploy:
 
 ```bash
 supabase secrets set OPENAI_API_KEY=sk-...
@@ -128,15 +214,95 @@ supabase secrets set OPENAI_MODEL=gpt-4o-mini
 supabase functions deploy ai-coach
 ```
 
-Keep JWT verification enabled (default). The Edge runtime provides `SUPABASE_URL` and `SUPABASE_ANON_KEY` automatically.
+Notes:
 
-### Optional: script-created test user
+- The function expects authenticated requests (JWT).
+- Edge runtime provides `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+- If `OPENAI_API_KEY` is missing, the function returns `503` with `AI not configured on server`.
 
-If you prefer not to use the in-app sign-up flow, you can create a user with the Admin API using `npm run create-test-user` and `SUPABASE_SERVICE_ROLE_KEY` — see [scripts/create-test-user.mjs](scripts/create-test-user.mjs). Do not put the service role key in the mobile app.
+## Data model and sync behavior
 
-## Watch
+### Main entities
 
-See [apps/mobile/WATCH.md](apps/mobile/WATCH.md).
+- `profiles`
+- `exercises`
+- `workout_sessions`
+- `set_logs`
+- `workout_templates` (routines)
+- friend/social comparison tables and RPC-backed stats
+
+### Sync model (mobile)
+
+- App writes to local SQLite first.
+- **Account -> Sync (push + pull)**:
+  1. Pushes local dirty rows
+  2. Pulls latest remote rows
+  3. Merges into local store
+- Dirty local rows are protected from being overwritten during pull until push succeeds.
+
+### Web storage caveat
+
+On web, workout storage uses `sql.js` (WASM loaded from `sql.js.org`) due to `expo-sqlite` web-worker/WASM limitations. Native iOS/Android still use `expo-sqlite`.
+
+## Utility scripts
+
+### `npm run check-supabase`
+
+Runs `scripts/check-supabase.mjs`:
+
+- Reads `apps/mobile/.env`
+- Validates URL/key presence
+- Calls `GET <project>/auth/v1/health`
+- Does not print secrets
+
+### `npm run create-test-user`
+
+Runs `scripts/create-test-user.mjs`:
+
+- Uses Supabase Admin API to create a confirmed email/password user
+- Requires:
+  - `SUPABASE_URL`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+- Optional:
+  - `TEST_USER_EMAIL`
+  - `TEST_USER_PASSWORD`
+
+## Deployment
+
+### Marketing site (GitHub Pages)
+
+Deployment workflow: [`.github/workflows/deploy-web.yml`](.github/workflows/deploy-web.yml)
+
+- Trigger: push to `main` (plus manual dispatch)
+- Build command: `npm run build --workspace=apps/web`
+- Artifact: `apps/web/dist`
+- Base path is injected with `VITE_BASE_PATH=/<repo-name>/` for project pages hosting
+
+### Backend deployment
+
+- **Schema:** `supabase db push`
+- **Edge function:** `supabase functions deploy ai-coach`
+
+## Watch companion notes
+
+Watch/health integration planning and bridge usage live in [apps/mobile/WATCH.md](apps/mobile/WATCH.md), including:
+
+- health snapshot payload shape
+- deep links (`gymbros://workout/start`, `gymbros://workout/active`)
+- platform implementation notes for Apple Watch / Wear OS
+
+## Troubleshooting
+
+- **Missing schema errors** (for example table not found in API cache): run `supabase db push` and retry sync after a short delay.
+- **Expo app cannot connect to Supabase:** verify `.env` values and run `npm run check-supabase`.
+- **Web first load fails for workout storage:** ensure internet access to load sql.js WASM.
+- **Sign-up blocked in dev:** check Email provider/rate limits in Supabase Auth settings.
+
+## Security notes
+
+- Never commit real `.env` files or secrets.
+- Never expose `SUPABASE_SERVICE_ROLE_KEY` to client/mobile code.
+- Use anon key only in public/mobile runtime.
 
 ## License
 
