@@ -7,4 +7,8 @@ dist/
 .env
 .env.local
 apps/mobile/.env
+apps/mobile/secrets/
+*.p8
+*.jks
+*.keystore
 .DS_Store
