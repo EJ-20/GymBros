@@ -9,7 +9,7 @@ import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import type { ComponentType, PropsWithChildren } from 'react';
 import { useEffect, useState } from 'react';
-import { useColorScheme, Linking } from 'react-native';
+import { Linking, Platform, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -67,7 +67,13 @@ export default function RootLayout() {
             <WeightUnitProvider>
               <AppAlertProvider>
                 <ToastProvider>
-                  <Stack>
+                  <Stack
+                    screenOptions={{
+                      /** iOS: edge swipe (and full-screen interactive pop where supported). Android: system back + Material transitions. */
+                      gestureEnabled: true,
+                      ...(Platform.OS === 'ios' ? { fullScreenGestureEnabled: true } : {}),
+                    }}
+                  >
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: true }} />
                     <Stack.Screen

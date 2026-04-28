@@ -1,4 +1,3 @@
-import { KeyboardAvoidingScreen } from '@/src/components/KeyboardAvoidingScreen';
 import { useColors } from '@/src/hooks/useColors';
 import { contrastScrollProps } from '@/src/lib/contrastScrollProps';
 import { useAppAlert } from '@/src/contexts/AppAlertContext';
@@ -6,22 +5,28 @@ import { useAuth } from '@/src/contexts/AuthContext';
 import { useWeightUnit } from '@/src/contexts/WeightUnitContext';
 import { buildCoachContextSummary } from '@/src/lib/coachContext';
 import { getSupabase } from '@/src/lib/supabase';
+import { useFocusEffect } from '@react-navigation/native';
 import { Link } from 'expo-router';
-import { useEffect, useRef, useState, type ComponentRef } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Msg = { role: 'user' | 'assistant'; text: string };
 
 export default function CoachScreen() {
   const c = useColors();
+  const insets = useSafeAreaInsets();
   const { user, backendReady } = useAuth();
   const { unit } = useWeightUnit();
   const showAlert = useAppAlert();
@@ -34,6 +39,14 @@ export default function CoachScreen() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const listRef = useRef<ComponentRef<typeof FlatList>>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        Keyboard.dismiss();
+      };
+    }, [])
+  );
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -92,14 +105,17 @@ export default function CoachScreen() {
   };
 
   return (
-    <KeyboardAvoidingScreen variant="tab" style={{ flex: 1, backgroundColor: c.background }}>
+    <View style={{ flex: 1, backgroundColor: c.background }}>
       <FlatList
         ref={listRef}
+        style={{ flex: 1 }}
         {...contrastScrollProps(c.scrollIndicatorStyle, 'vertical')}
         data={messages}
         keyExtractor={(_, i) => String(i)}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 8 }}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        onScrollBeginDrag={() => Keyboard.dismiss()}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         renderItem={({ item }) => (
           <View
@@ -120,7 +136,19 @@ export default function CoachScreen() {
           </View>
         )}
       />
-      <View style={[styles.footer, { borderTopColor: c.border, backgroundColor: c.card }]}>
+      {/*
+        Avoid wrapping the full screen in KeyboardAvoidingView: on iOS it can steal edge/back
+        gestures from the parent navigator while the keyboard is up. Only the input strip adjusts.
+        Android uses app.config softwareKeyboardLayoutMode: 'resize'.
+      */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+        style={[
+          styles.footer,
+          { borderTopColor: c.border, backgroundColor: c.card, paddingBottom: Math.max(insets.bottom, 6) },
+        ]}
+      >
         {!user || !backendReady ? (
           <View style={{ marginBottom: 8, gap: 6 }}>
             <Text style={{ color: c.textMuted, fontSize: 13, lineHeight: 18 }}>
@@ -153,8 +181,8 @@ export default function CoachScreen() {
             <Text style={[styles.sendText, { color: c.onTint }]}>Send</Text>
           </Pressable>
         </View>
-      </View>
-    </KeyboardAvoidingScreen>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
