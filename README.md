@@ -1,13 +1,22 @@
 # GymBros
 
-Mobile-first gym tracker: local workout logging, Supabase sync, friends-only stats on the Leadership tab, and an AI coach (OpenAI via Supabase Edge Function).
+Mobile-first gym tracker: **local SQLite** workout logging, **Supabase** sync, **Leadership** (friends + cohort benchmarks), and an **AI coach** (OpenAI via Supabase Edge Function). Includes a small **Vite** marketing site under `apps/web`.
+
+## Documentation map
+
+| Doc | Contents |
+|-----|----------|
+| **[README.md](README.md)** (this file) | Monorepo overview, Supabase setup, migrations order, scripts |
+| **[apps/mobile/README.md](apps/mobile/README.md)** | Expo app layout, routes, env, navigation |
+| **[apps/mobile/WATCH.md](apps/mobile/WATCH.md)** | Watch / health metrics bridge, deep links |
+| **[.env.example](.env.example)** | Environment variables (copy for local dev) |
 
 ## Structure
 
 - [apps/web](apps/web) — Marketing / landing site (Vite static HTML + CSS)
-- [apps/mobile](apps/mobile) — Expo (React Native) app
+- [apps/mobile](apps/mobile) — Expo (React Native) app — **see [apps/mobile/README.md](apps/mobile/README.md)**
 - [packages/shared](packages/shared) — Shared TypeScript types, Zod schemas, PR helpers
-- [supabase/migrations](supabase/migrations) — Postgres schema, RLS, `friend_compare_stats` RPC
+- [supabase/migrations](supabase/migrations) — Postgres schema, RLS, RPCs (friends, benchmarks, profile search)
 - [supabase/functions/ai-coach](supabase/functions/ai-coach) — Deno edge function calling OpenAI
 
 ## Marketing site
@@ -42,12 +51,15 @@ Set environment variables (or `apps/mobile/.env` with Expo):
 Start the app:
 
 ```bash
-npm run start --workspace=apps/mobile
+npm run mobile
+# or: npm run start --workspace=apps/mobile
 ```
 
-**Web:** Workouts use [sql.js](https://sql.js.org/) (WASM loaded from `sql.js.org`) because the `expo-sqlite` npm package does not ship `wa-sqlite.wasm`, so the browser never loads `expo-sqlite`’s broken web worker. iOS/Android still use `expo-sqlite` on device. The first web load needs network access to fetch the WASM file.
+**Web (Expo web):** Workouts use [sql.js](https://sql.js.org/) (WASM loaded from `sql.js.org`) because the `expo-sqlite` npm package does not ship `wa-sqlite.wasm`, so the browser never loads `expo-sqlite`’s broken web worker. **iOS/Android** still use `expo-sqlite` on device. The first web load needs network access to fetch the WASM file.
 
-**Routines:** Saved in `workout_templates` (exercise order). Create/edit under **Routines** (from Home or Workout), **Start from routine** on the Workout tab, or **Save as routine** during an active session (order follows first logged set per exercise). They sync with **Account → Sync** once the `workout_templates` table exists in Supabase (second migration file).
+**Routines:** Saved in `workout_templates` (exercise order). Create/edit under **Routines** (stack route), **Manage routines** from the Workout tab, or **Save as routine** during an active session. They sync with **Account → Sync** once the `workout_templates` table exists in Supabase.
+
+**History:** Completed sessions list lives under the **History** tab; tapping a session opens **Workout details** (`session-detail`).
 
 **Sync:** Account → **Sync (push + pull)** uploads dirty local rows, then downloads `exercises`, `workout_sessions`, `set_logs`, and `workout_templates` from Supabase and merges them into SQLite. Local rows still marked dirty (unsent changes) are not overwritten on pull until you sync again after a successful push.
 
@@ -108,13 +120,23 @@ Optional: **Authentication** → **Rate limits** — relax or disable for dev if
 **Sync and social features only work after this schema exists on your project.** If you skip it, the app may show PostgREST errors like *could not find the table `public.workout_sessions` in the schema cache*.
 
 1. Create a project (if you have not already) and link the repo: `supabase link` (needs [Supabase CLI](https://supabase.com/docs/guides/cli) login).
-2. Apply migrations from the repo root:
+2. Apply migrations from the repo root (**filename order** preserves dependencies):
 
    ```bash
    supabase db push
    ```
 
-   **Or without the CLI:** **SQL Editor** → run each file in [supabase/migrations](supabase/migrations) in filename order (e.g. `20250330000000_initial.sql`, then [20250330100000_workout_templates.sql](supabase/migrations/20250330100000_workout_templates.sql), then [20250330200000_global_benchmarks.sql](supabase/migrations/20250330200000_global_benchmarks.sql), then [20250330300000_benchmark_demographics.sql](supabase/migrations/20250330300000_benchmark_demographics.sql) for sex / height / training-year cohort fields, then [20250330400000_weight_unit.sql](supabase/migrations/20250330400000_weight_unit.sql) for `profiles.weight_unit` (kg vs lb display preference)).
+   **Or without the CLI:** **SQL Editor** → run each file in [supabase/migrations](supabase/migrations) in **lexicographic filename order**:
+
+   | Migration file | Purpose |
+   |----------------|---------|
+   | `20250330000000_initial.sql` | Profiles, exercises (cloud sync shape), sessions, sets, friendships, `friend_compare_stats` RPC |
+   | `20250330100000_workout_templates.sql` | Routine templates table |
+   | `20250330200000_global_benchmarks.sql` | Benchmark columns + `global_benchmark_percentiles` RPC |
+   | `20250330300000_benchmark_demographics.sql` | Sex, height, training years for cohorts |
+   | `20250330400000_weight_unit.sql` | Profile weight unit preference |
+   | `20260330120000_compare_search_and_stats.sql` | `my_training_stats`, `search_profiles_for_contacts` (Leadership tab) |
+   | `20260410120000_exercise_tracking_and_set_distance.sql` | Exercise tracking modes, set `distance_m` |
 
 3. If tables already exist but the API still complains, wait a minute or in **Project Settings** → **API** use options to refresh/restart if your plan shows them; usually a fresh `db push` is enough.
 
@@ -133,6 +155,17 @@ Keep JWT verification enabled (default). The Edge runtime provides `SUPABASE_URL
 ### Optional: script-created test user
 
 If you prefer not to use the in-app sign-up flow, you can create a user with the Admin API using `npm run create-test-user` and `SUPABASE_SERVICE_ROLE_KEY` — see [scripts/create-test-user.mjs](scripts/create-test-user.mjs). Do not put the service role key in the mobile app.
+
+## Repo scripts (root `package.json`)
+
+| Script | Command |
+|--------|---------|
+| `npm run mobile` | Start Expo (`apps/mobile`) |
+| `npm run web` | Vite dev server for marketing site |
+| `npm run web:build` | Static web build |
+| `npm run lint` | Lint mobile app |
+| `npm run create-test-user` | Create test user (needs service role in env) |
+| `npm run check-supabase` | Check Supabase connectivity (see script) |
 
 ## Watch
 

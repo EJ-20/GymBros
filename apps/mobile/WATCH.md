@@ -1,5 +1,7 @@
 # Watch companion (phase 2)
 
+Companion docs for the GymBros **mobile** app (`apps/mobile`). For Expo setup and routes, see [README.md](./README.md); for the monorepo and Supabase, see the repo root [README.md](../README.md).
+
 GymBros uses the same Postgres rows as the phone app. A watch app should be a thin client that talks to **Supabase** (or your API) with the user session.
 
 ## Health metrics (sleep, activity, heart rate, steps, calories, …)
