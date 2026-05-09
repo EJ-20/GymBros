@@ -5,6 +5,10 @@ import * as repo from '@/src/db/workoutRepo';
 
 const PAGE = 500;
 
+function isMissingTrackingModeColumn(error: string | null | undefined): boolean {
+  return Boolean(error && error.toLowerCase().includes('tracking_mode'));
+}
+
 async function fetchAll<T extends Record<string, unknown>>(
   sb: SupabaseClient,
   table: 'exercises' | 'workout_sessions' | 'set_logs' | 'workout_templates',
@@ -34,19 +38,27 @@ export async function syncToCloud(userId: string): Promise<{ error: string | nul
   const { exercises, sessions, sets, templates } = repo.listDirtyRows();
 
   for (const ex of exercises) {
-    const { error } = await sb.from('exercises').upsert(
-      {
-        user_id: userId,
-        client_local_id: ex.id,
-        name: ex.name,
-        muscle_group: ex.muscle_group,
-        equipment: ex.equipment,
-        created_at: ex.created_at,
-        tracking_mode: (ex.tracking_mode as string) ?? 'weight_reps',
-      },
-      { onConflict: 'user_id,client_local_id' }
-    );
-    if (error) return { error: error.message };
+    const basePayload = {
+      user_id: userId,
+      client_local_id: ex.id,
+      name: ex.name,
+      muscle_group: ex.muscle_group,
+      equipment: ex.equipment,
+      created_at: ex.created_at,
+    };
+    const { error } = await sb
+      .from('exercises')
+      .upsert(
+        { ...basePayload, tracking_mode: (ex.tracking_mode as string) ?? 'weight_reps' },
+        { onConflict: 'user_id,client_local_id' }
+      );
+    if (error) {
+      if (!isMissingTrackingModeColumn(error.message)) return { error: error.message };
+      const retry = await sb
+        .from('exercises')
+        .upsert(basePayload, { onConflict: 'user_id,client_local_id' });
+      if (retry.error) return { error: retry.error.message };
+    }
     repo.markSynced('exercises', ex.id as string, ex.id as string);
   }
 
@@ -163,11 +175,18 @@ export async function pullFromCloud(): Promise<{
   const { data: auth } = await sb.auth.getUser();
   if (!auth.user) return { error: 'Not signed in' };
 
-  const ex = await fetchAll<RemoteExercise>(
+  let ex = await fetchAll<RemoteExercise>(
     sb,
     'exercises',
     'id, client_local_id, name, muscle_group, equipment, created_at, tracking_mode'
   );
+  if (isMissingTrackingModeColumn(ex.error)) {
+    ex = await fetchAll<RemoteExercise>(
+      sb,
+      'exercises',
+      'id, client_local_id, name, muscle_group, equipment, created_at'
+    );
+  }
   if (ex.error) return { error: ex.error };
 
   const ws = await fetchAll<RemoteSession>(
